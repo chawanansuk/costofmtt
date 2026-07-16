@@ -1,0 +1,17 @@
+{
+  "name": "CostSnap — บันทึกต้นทุนจากใบกำกับภาษี",
+  "short_name": "CostSnap",
+  "description": "ถ่ายรูปใบกำกับภาษี ให้ AI อ่านค่า และบันทึกต้นทุนสินค้า",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f4ef",
+  "theme_color": "#155e4a",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
