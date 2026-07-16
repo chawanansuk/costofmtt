@@ -20,8 +20,9 @@ const SYSTEM_PROMPT = `คุณคือระบบอ่านข้อมู
 6. line_items: เก็บทุกบรรทัดสินค้า/บริการ ตาม description ที่พิมพ์จริง ห้ามรวมบรรทัดส่วนลด/ยอดรวมเข้าเป็นสินค้า ถ้ามีส่วนลดให้ใส่ใน discount
 7. ตัวเลขเงิน: ตอบเป็น number ไม่มี comma, subtotal = ยอดก่อน VAT (หรือยอดรวมถ้าไม่มี VAT), vat_amount = จำนวน VAT ตามที่พิมพ์, total = ยอดสุทธิที่ต้องชำระ
 8. ก่อนตอบ ให้ตรวจทานว่า ผลรวม line_items ใกล้เคียง subtotal และ subtotal - discount + vat_amount ≈ total ถ้าไม่ตรงให้อ่านซ้ำอย่างละเอียด และถ้ายังไม่ตรงให้ระบุใน warnings
-9. confidence: "high" = ภาพชัด อ่านได้ครบ, "medium" = อ่านได้ส่วนใหญ่แต่บางจุดไม่แน่ใจ, "low" = ภาพมัว/ไม่ครบ/ไม่แน่ใจหลายจุด
-10. warnings เขียนเป็นภาษาไทยสั้นๆ`;
+9. จัดหมวดหมู่ต้นทุนให้แต่ละรายการ (category): "raw_material" = วัตถุดิบ/ส่วนผสมที่นำไปผลิต, "merchandise" = สินค้าสำเร็จรูปซื้อมาขายต่อ, "packaging" = บรรจุภัณฑ์ ถุง กล่อง, "supplies" = วัสดุสิ้นเปลือง ของใช้ในร้าน, "equipment" = อุปกรณ์/เครื่องมือ/เครื่องใช้, "shipping" = ค่าขนส่ง, "utilities" = ค่าน้ำ ไฟ เน็ต โทรศัพท์, "service_other" = ค่าบริการหรืออื่นๆ ถ้าไม่แน่ใจให้เป็น null
+10. confidence: "high" = ภาพชัด อ่านได้ครบ, "medium" = อ่านได้ส่วนใหญ่แต่บางจุดไม่แน่ใจ, "low" = ภาพมัว/ไม่ครบ/ไม่แน่ใจหลายจุด
+11. warnings เขียนเป็นภาษาไทยสั้นๆ`;
 
 const EXTRACT_TOOL: Anthropic.Tool = {
   name: "record_receipt",
@@ -70,13 +71,20 @@ const EXTRACT_TOOL: Anthropic.Tool = {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["description", "quantity", "unit", "unit_price", "amount"],
+          required: ["description", "quantity", "unit", "unit_price", "amount", "category"],
           properties: {
             description: { type: "string" },
             quantity: { type: ["number", "null"] },
             unit: { type: ["string", "null"] },
             unit_price: { type: ["number", "null"] },
             amount: { type: ["number", "null"] },
+            category: {
+              type: ["string", "null"],
+              enum: [
+                "raw_material", "merchandise", "packaging", "supplies",
+                "equipment", "shipping", "utilities", "service_other", null,
+              ],
+            },
           },
         },
       },

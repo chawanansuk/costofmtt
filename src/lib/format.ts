@@ -29,6 +29,17 @@ export function monthLabel(key: string): string {
   return d.toLocaleDateString("th-TH", { month: "short", year: "2-digit" });
 }
 
+export const CATEGORY_LABEL: Record<string, string> = {
+  raw_material: "วัตถุดิบ",
+  merchandise: "สินค้าเพื่อขาย",
+  packaging: "บรรจุภัณฑ์",
+  supplies: "วัสดุสิ้นเปลือง",
+  equipment: "อุปกรณ์/เครื่องมือ",
+  shipping: "ค่าขนส่ง",
+  utilities: "ค่าสาธารณูปโภค",
+  service_other: "ค่าบริการ/อื่นๆ",
+};
+
 export const DOC_TYPE_LABEL: Record<string, string> = {
   tax_invoice_full: "ใบกำกับภาษีเต็มรูป",
   tax_invoice_abb: "ใบกำกับภาษีอย่างย่อ",

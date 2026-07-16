@@ -12,6 +12,12 @@ db.version(1).stores({
   items: "++id, receiptId, normalizedName, docDate",
 });
 
+// v2: เพิ่ม index หมวดหมู่ให้รายการสินค้า (ข้อมูลเก่า category = undefined ได้)
+db.version(2).stores({
+  receipts: "++id, createdAt, docDate, sellerName, sellerTaxId, docNumber, documentType",
+  items: "++id, receiptId, normalizedName, docDate, category",
+});
+
 // ตรวจใบซ้ำ: ผู้ขายเดียวกัน + เลขที่เอกสารเดียวกัน
 export async function findDuplicate(
   sellerTaxId: string | null,

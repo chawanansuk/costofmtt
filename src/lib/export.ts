@@ -39,12 +39,14 @@ export async function exportReceiptsCsv() {
 }
 
 export async function exportItemsCsv() {
+  const { CATEGORY_LABEL } = await import("./format");
   const items = await db.items.toArray();
   const rows: (string | number | null)[][] = [
-    ["วันที่", "ผู้ขาย", "รายการ", "จำนวน", "หน่วย", "ราคา/หน่วย", "รวม"],
+    ["วันที่", "ผู้ขาย", "รายการ", "หมวดหมู่", "จำนวน", "หน่วย", "ราคา/หน่วย", "รวม"],
     ...items.map((it) => [
-      it.docDate, it.sellerName, it.description, it.quantity, it.unit,
-      it.unitPrice, it.amount,
+      it.docDate, it.sellerName, it.description,
+      it.category ? CATEGORY_LABEL[it.category] ?? it.category : "",
+      it.quantity, it.unit, it.unitPrice, it.amount,
     ]),
   ];
   download(toCsv(rows), `costsnap-items-${today()}.csv`, "text/csv;charset=utf-8");

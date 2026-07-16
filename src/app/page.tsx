@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
-import { baht, thaiDate, monthKey, monthLabel } from "@/lib/format";
+import { baht, thaiDate, monthKey, monthLabel, CATEGORY_LABEL } from "@/lib/format";
 import BarChart from "@/components/BarChart";
 
 function lastMonths(n: number): string[] {
@@ -19,6 +19,7 @@ function lastMonths(n: number): string[] {
 
 export default function DashboardPage() {
   const receipts = useLiveQuery(() => db.receipts.toArray(), []);
+  const items = useLiveQuery(() => db.items.toArray(), []);
 
   const stats = useMemo(() => {
     if (!receipts) return null;
@@ -54,8 +55,31 @@ export default function DashboardPage() {
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 5);
 
-    return { monthCost, monthVat, monthCount, chart, topSellers, recent, totalCount: receipts.length };
-  }, [receipts]);
+    // ต้นทุนตามหมวดหมู่เดือนนี้ (อิงเดือนของใบที่รายการนั้นสังกัด)
+    const receiptMonth = new Map<number, string>();
+    for (const r of receipts) {
+      if (r.id != null) receiptMonth.set(r.id, monthKey(r.docDate, r.createdAt));
+    }
+    const byCategory = new Map<string, number>();
+    for (const it of items ?? []) {
+      if (receiptMonth.get(it.receiptId) !== thisMonth) continue;
+      const key = it.category ?? "uncategorized";
+      byCategory.set(key, (byCategory.get(key) ?? 0) + it.amount);
+    }
+    const categories = [...byCategory.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([key, total]) => ({
+        key,
+        label: key === "uncategorized" ? "ไม่ระบุหมวด" : CATEGORY_LABEL[key] ?? key,
+        total,
+      }));
+    const categoryMax = Math.max(...categories.map((c) => c.total), 1);
+
+    return {
+      monthCost, monthVat, monthCount, chart, topSellers, recent,
+      totalCount: receipts.length, categories, categoryMax,
+    };
+  }, [receipts, items]);
 
   return (
     <div>
@@ -111,6 +135,41 @@ export default function DashboardPage() {
             <div className="card mt-4">
               <div className="card-title">ต้นทุนย้อนหลัง 6 เดือน (บาท)</div>
               <BarChart data={stats.chart} ariaLabel="กราฟต้นทุนรายเดือนย้อนหลัง 6 เดือน" />
+            </div>
+          )}
+
+          {stats && stats.categories.length > 0 && (
+            <div className="card mt-4">
+              <div className="card-title">ต้นทุนตามหมวดหมู่ (เดือนนี้)</div>
+              <div className="stack" style={{ display: "grid", gap: 10 }}>
+                {stats.categories.map((c) => (
+                  <div key={c.key}>
+                    <div className="row spread small">
+                      <span>{c.label}</span>
+                      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+                        {baht(c.total)} ฿
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        height: 8,
+                        borderRadius: 4,
+                        background: "var(--surface-2)",
+                        marginTop: 3,
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.max(2, (c.total / stats.categoryMax) * 100)}%`,
+                          borderRadius: 4,
+                          background: "#10805a",
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

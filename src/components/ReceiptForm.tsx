@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ExtractedReceipt, LineItem } from "@/lib/types";
+import type { ExtractedReceipt, LineItem, CostCategory } from "@/lib/types";
 import { validateExtraction } from "@/lib/validate";
-import { baht, DOC_TYPE_LABEL } from "@/lib/format";
+import { baht, DOC_TYPE_LABEL, CATEGORY_LABEL } from "@/lib/format";
 
 interface Props {
   initial: ExtractedReceipt;
@@ -11,6 +11,8 @@ interface Props {
   duplicateWarning?: string | null;
   onSave: (data: ExtractedReceipt) => void;
   onCancel: () => void;
+  cancelLabel?: string;
+  saveLabel?: string;
 }
 
 const numOrNull = (s: string): number | null => {
@@ -25,6 +27,8 @@ export default function ReceiptForm({
   duplicateWarning,
   onSave,
   onCancel,
+  cancelLabel = "ยกเลิก",
+  saveLabel,
 }: Props) {
   const [data, setData] = useState<ExtractedReceipt>(initial);
   const validation = useMemo(() => validateExtraction(data), [data]);
@@ -47,7 +51,7 @@ export default function ReceiptForm({
       ...d,
       line_items: [
         ...d.line_items,
-        { description: "", quantity: 1, unit: null, unit_price: null, amount: null },
+        { description: "", quantity: 1, unit: null, unit_price: null, amount: null, category: null },
       ],
     }));
 
@@ -222,6 +226,7 @@ export default function ReceiptForm({
                 <th>หน่วย</th>
                 <th className="num">ราคา/หน่วย</th>
                 <th className="num">รวม</th>
+                <th>หมวดหมู่</th>
                 <th></th>
               </tr>
             </thead>
@@ -266,6 +271,24 @@ export default function ReceiptForm({
                       value={it.amount ?? ""}
                       onChange={(e) => setItem(i, { amount: numOrNull(e.target.value) })}
                     />
+                  </td>
+                  <td>
+                    <select
+                      style={{ minWidth: 120 }}
+                      value={it.category ?? ""}
+                      onChange={(e) =>
+                        setItem(i, {
+                          category: (e.target.value || null) as CostCategory | null,
+                        })
+                      }
+                    >
+                      <option value="">— ไม่ระบุ —</option>
+                      {Object.entries(CATEGORY_LABEL).map(([k, v]) => (
+                        <option key={k} value={k}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td>
                     <button
@@ -340,14 +363,16 @@ export default function ReceiptForm({
 
       <div className="row">
         <button className="btn btn-secondary" onClick={onCancel} disabled={saving}>
-          ยกเลิก
+          {cancelLabel}
         </button>
         <button
           className="btn btn-primary btn-block"
           onClick={() => onSave(data)}
           disabled={saving || (data.total == null && itemsSum === 0)}
         >
-          {saving ? "กำลังบันทึก…" : `บันทึกต้นทุน ${baht(data.total ?? itemsSum)} บาท`}
+          {saving
+            ? "กำลังบันทึก…"
+            : saveLabel ?? `บันทึกต้นทุน ${baht(data.total ?? itemsSum)} บาท`}
         </button>
       </div>
     </div>

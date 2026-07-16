@@ -13,12 +13,24 @@ export interface Party {
   address: string | null;
 }
 
+// หมวดหมู่ต้นทุน — ให้ AI จัดหมวดตอนสกัด และผู้ใช้แก้ได้ในฟอร์ม
+export type CostCategory =
+  | "raw_material"
+  | "merchandise"
+  | "packaging"
+  | "supplies"
+  | "equipment"
+  | "shipping"
+  | "utilities"
+  | "service_other";
+
 export interface LineItem {
   description: string;
   quantity: number | null;
   unit: string | null;
   unit_price: number | null;
   amount: number | null;
+  category: CostCategory | null;
 }
 
 export interface ExtractedReceipt {
@@ -66,7 +78,10 @@ export interface ReceiptRecord {
   sellerName: string | null;
   sellerTaxId: string | null;
   sellerBranch: string | null;
+  sellerAddress: string | null;
   buyerName: string | null;
+  buyerTaxId: string | null;
+  paymentMethod: string | null;
   subtotal: number;
   discount: number;
   vatAmount: number;
@@ -90,4 +105,5 @@ export interface ItemRecord {
   unit: string | null;
   unitPrice: number;
   amount: number;
+  category: CostCategory | null;
 }

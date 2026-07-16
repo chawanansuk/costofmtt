@@ -3,10 +3,11 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
-import { baht, thaiDate } from "@/lib/format";
+import { baht, thaiDate, CATEGORY_LABEL } from "@/lib/format";
 
 interface ProductSummary {
   name: string;
+  category: string | null;
   buyCount: number;
   totalQty: number;
   unit: string | null;
@@ -21,6 +22,7 @@ interface ProductSummary {
 export default function ProductsPage() {
   const items = useLiveQuery(() => db.items.toArray(), []);
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
 
   const products = useMemo(() => {
     if (!items) return null;
@@ -33,6 +35,7 @@ export default function ProductsPage() {
       if (!cur) {
         map.set(key, {
           name: it.description,
+          category: it.category ?? null,
           buyCount: 1,
           totalQty: it.quantity,
           unit: it.unit,
@@ -56,6 +59,7 @@ export default function ProductsPage() {
           cur.lastDate = it.docDate;
           cur.name = it.description;
           cur.unit = it.unit ?? cur.unit;
+          cur.category = it.category ?? cur.category;
         }
       }
     }
@@ -68,10 +72,13 @@ export default function ProductsPage() {
 
   const filtered = useMemo(() => {
     if (!products) return [];
-    if (!search) return products;
     const q = search.toLowerCase();
-    return products.filter((p) => p.name.toLowerCase().includes(q));
-  }, [products, search]);
+    return products.filter((p) => {
+      if (category && p.category !== category) return false;
+      if (q && !p.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [products, search, category]);
 
   return (
     <div>
@@ -84,12 +91,24 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      <div className="field mt-2">
-        <input
-          placeholder="ค้นหาสินค้า/วัตถุดิบ"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="row mt-2">
+        <div className="field" style={{ flex: 1 }}>
+          <input
+            placeholder="ค้นหาสินค้า/วัตถุดิบ"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="field" style={{ width: 150 }}>
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="">ทุกหมวด</option>
+            {Object.entries(CATEGORY_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {products && filtered.length === 0 && (
@@ -116,6 +135,11 @@ export default function ProductsPage() {
                 {p.unit ?? "หน่วย"} · ล่าสุด {thaiDate(p.lastDate)}
               </div>
               <div className="row wrap mt-2" style={{ gap: 6 }}>
+                {p.category && (
+                  <span className="badge badge-neutral">
+                    {CATEGORY_LABEL[p.category] ?? p.category}
+                  </span>
+                )}
                 <span className="badge badge-neutral">
                   เฉลี่ย {baht(p.avgUnitCost)} ฿/{p.unit ?? "หน่วย"}
                 </span>

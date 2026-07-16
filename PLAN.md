@@ -148,13 +148,13 @@
 ## 7. แผนงาน (ทำใน commit นี้ = Phase 1 ทั้งหมด)
 
 - [x] วิจัย + แผน (ไฟล์นี้)
-- [ ] โครง Next.js + design system (มือถือเป็นหลัก, ธีมไทย อ่านง่าย)
-- [ ] API `/api/extract` (Claude vision + strict schema + validation)
-- [ ] หน้า Scan + บีบอัดรูป + Review form
-- [ ] Dexie DB + หน้า Receipts / detail
-- [ ] Dashboard + กราฟ + หน้า Products
-- [ ] Export CSV / Backup / Restore
-- [ ] PWA manifest + build ผ่าน + push
+- [x] โครง Next.js + design system (มือถือเป็นหลัก, ธีมไทย อ่านง่าย)
+- [x] API `/api/extract` (Claude vision + strict schema + validation)
+- [x] หน้า Scan + บีบอัดรูป + Review form (รองรับ batch หลายใบต่อเนื่อง)
+- [x] Dexie DB + หน้า Receipts / detail (พร้อมแก้ไขหลังบันทึก)
+- [x] Dashboard + กราฟ + หน้า Products (พร้อมหมวดหมู่ต้นทุนที่ AI จัดให้)
+- [x] Export CSV / Backup / Restore
+- [x] PWA manifest + service worker + build ผ่าน + push
 
 ## 8. ไอเดียต่อยอด (Phase ถัดไป)
 

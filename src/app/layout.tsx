@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import NavBar from "@/components/NavBar";
+import SwRegister from "@/components/SwRegister";
 
 export const metadata: Metadata = {
   title: "CostSnap — บันทึกต้นทุนจากใบกำกับภาษี",
@@ -34,6 +35,7 @@ export default function RootLayout({
           <main className="app-main">{children}</main>
           <NavBar />
         </div>
+        <SwRegister />
       </body>
     </html>
   );

@@ -4,7 +4,10 @@ import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, deleteReceipt } from "@/lib/db";
-import { baht, thaiDate, DOC_TYPE_LABEL } from "@/lib/format";
+import { updateReceipt } from "@/lib/save";
+import type { ExtractedReceipt } from "@/lib/types";
+import { baht, thaiDate, DOC_TYPE_LABEL, CATEGORY_LABEL } from "@/lib/format";
+import ReceiptForm from "@/components/ReceiptForm";
 
 export default function ReceiptDetailPage({
   params,
@@ -22,6 +25,10 @@ export default function ReceiptDetailPage({
     [receiptId]
   );
 
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   useEffect(() => {
     if (receipt?.imageBlob) {
@@ -37,12 +44,75 @@ export default function ReceiptDetailPage({
     router.push("/receipts");
   }
 
+  async function handleUpdate(data: ExtractedReceipt) {
+    setSaving(true);
+    try {
+      await updateReceipt(receiptId, data);
+      setEditing(false);
+      setSaveMsg("บันทึกการแก้ไขแล้ว");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (receipt === null) return null;
   if (!receipt) {
     return (
       <div className="empty">
         <div className="big">🔍</div>
         <p>ไม่พบเอกสารนี้</p>
+      </div>
+    );
+  }
+
+  // โหมดแก้ไข: ประกอบข้อมูลจากเรคคอร์ดกลับเป็นโครง ExtractedReceipt ให้ฟอร์มเดิมใช้ได้
+  if (editing && items) {
+    const initial: ExtractedReceipt = {
+      document_type: receipt.documentType,
+      seller: {
+        name: receipt.sellerName,
+        tax_id: receipt.sellerTaxId,
+        branch: receipt.sellerBranch,
+        address: receipt.sellerAddress ?? null,
+      },
+      buyer: {
+        name: receipt.buyerName,
+        tax_id: receipt.buyerTaxId ?? null,
+        branch: null,
+        address: null,
+      },
+      doc_number: receipt.docNumber,
+      doc_date: receipt.docDate,
+      line_items: items.map((it) => ({
+        description: it.description,
+        quantity: it.quantity,
+        unit: it.unit,
+        unit_price: it.unitPrice,
+        amount: it.amount,
+        category: it.category ?? null,
+      })),
+      subtotal: receipt.subtotal,
+      discount: receipt.discount || null,
+      vat_rate: receipt.vatAmount > 0 ? 7 : null,
+      vat_amount: receipt.vatAmount || null,
+      total: receipt.total,
+      payment_method: receipt.paymentMethod ?? null,
+      notes: receipt.notes,
+      confidence: receipt.confidence,
+      warnings: receipt.warnings,
+    };
+    return (
+      <div>
+        <div className="page-header">
+          <h1>แก้ไขเอกสาร</h1>
+        </div>
+        <ReceiptForm
+          initial={initial}
+          saving={saving}
+          onSave={handleUpdate}
+          onCancel={() => setEditing(false)}
+          saveLabel="บันทึกการแก้ไข"
+        />
       </div>
     );
   }
@@ -56,10 +126,17 @@ export default function ReceiptDetailPage({
             {thaiDate(receipt.docDate)} · {DOC_TYPE_LABEL[receipt.documentType]}
           </p>
         </div>
-        <button className="btn btn-danger btn-sm" onClick={handleDelete}>
-          ลบ
-        </button>
+        <div className="row">
+          <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}>
+            แก้ไข
+          </button>
+          <button className="btn btn-danger btn-sm" onClick={handleDelete}>
+            ลบ
+          </button>
+        </div>
       </div>
+
+      {saveMsg && <div className="alert alert-ok mt-2">✓ {saveMsg}</div>}
 
       <div className="row wrap mt-2" style={{ gap: 6 }}>
         {receipt.vatClaimable ? (
@@ -88,6 +165,9 @@ export default function ReceiptDetailPage({
             <tr><td className="muted">เลขผู้เสียภาษีผู้ขาย</td><td className="num">{receipt.sellerTaxId ?? "—"}</td></tr>
             <tr><td className="muted">สาขา</td><td className="num">{receipt.sellerBranch ?? "—"}</td></tr>
             <tr><td className="muted">ผู้ซื้อ</td><td className="num">{receipt.buyerName ?? "—"}</td></tr>
+            {receipt.paymentMethod && (
+              <tr><td className="muted">วิธีชำระเงิน</td><td className="num">{receipt.paymentMethod}</td></tr>
+            )}
             {receipt.notes && (
               <tr><td className="muted">หมายเหตุ</td><td className="num">{receipt.notes}</td></tr>
             )}
@@ -111,7 +191,16 @@ export default function ReceiptDetailPage({
               <tbody>
                 {items.map((it) => (
                   <tr key={it.id}>
-                    <td>{it.description}</td>
+                    <td>
+                      {it.description}
+                      {it.category && (
+                        <div>
+                          <span className="badge badge-neutral">
+                            {CATEGORY_LABEL[it.category]}
+                          </span>
+                        </div>
+                      )}
+                    </td>
                     <td className="num">
                       {it.quantity} {it.unit ?? ""}
                     </td>
