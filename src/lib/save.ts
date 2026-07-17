@@ -25,6 +25,8 @@ export function buildReceiptFields(
     vatAmount: data.vat_amount ?? 0,
     total,
     vatClaimable: validation.vatClaimable,
+    paid: data.paid,
+    dueDate: data.due_date,
     confidence: data.confidence,
     warnings: data.warnings,
     notes: data.notes,
@@ -37,20 +39,27 @@ export function buildItemRecords(
 ): ItemRecord[] {
   return data.line_items
     .filter((it) => it.description.trim() !== "")
-    .map((it) => ({
-      receiptId,
-      docDate: data.doc_date,
-      sellerName: data.seller.name,
-      description: it.description,
-      normalizedName: normalizeItemName(it.description),
-      quantity: it.quantity ?? 1,
-      unit: it.unit,
-      unitPrice:
-        it.unit_price ??
-        (it.amount != null && it.quantity ? it.amount / it.quantity : it.amount ?? 0),
-      amount: it.amount ?? 0,
-      category: it.category,
-    }));
+    .map((it) => {
+      const qty = it.quantity ?? 1;
+      // ต้นทุนจริงต่อหน่วย = จำนวนเงิน ÷ จำนวน — ราคา/หน่วยที่พิมพ์มักเป็นราคาก่อนส่วนลดบรรทัด
+      // (เช่นส่วนลดซ้อน "30+25%") จึงใช้ยอดจ่ายจริงเป็นหลักเสมอเมื่อคำนวณได้
+      const effectiveUnitPrice =
+        it.amount != null && qty > 0
+          ? it.amount / qty
+          : it.unit_price ?? it.amount ?? 0;
+      return {
+        receiptId,
+        docDate: data.doc_date,
+        sellerName: data.seller.name,
+        description: it.description,
+        normalizedName: normalizeItemName(it.description),
+        quantity: qty,
+        unit: it.unit,
+        unitPrice: effectiveUnitPrice,
+        amount: it.amount ?? 0,
+        category: it.category,
+      };
+    });
 }
 
 // บันทึกเอกสารใหม่พร้อมรูป

@@ -28,19 +28,22 @@ function isRateLimited(ip: string): boolean {
   return false;
 }
 
-const SYSTEM_PROMPT = `คุณคือระบบอ่านข้อมูลจากภาพใบกำกับภาษี/ใบเสร็จของไทย ให้สกัดข้อมูลอย่างแม่นยำที่สุดตามกติกาต่อไปนี้:
+const SYSTEM_PROMPT = `คุณคือระบบอ่านข้อมูลจากภาพเอกสารการค้าของไทย (ใบกำกับภาษี ใบเสร็จ ใบส่งของ ใบเสนอขาย บิลเขียนมือ ฯลฯ) ให้สกัดข้อมูลอย่างแม่นยำที่สุดตามกติกาต่อไปนี้:
 
-1. อ่านค่า "ตามที่พิมพ์จริง" เท่านั้น ห้ามเดา ห้ามแปลภาษา ห้ามเติมข้อมูลที่ไม่มีในภาพ ค่าที่อ่านไม่ได้/ไม่มี ให้เป็น null และใส่คำอธิบายใน warnings
+1. อ่านค่า "ตามที่ปรากฏจริง" เท่านั้น ห้ามเดา ห้ามแปลภาษา ห้ามเติมข้อมูลที่ไม่มีในภาพ ค่าที่อ่านไม่ได้/ไม่มี ให้เป็น null และใส่คำอธิบายใน warnings
 2. เลขไทย (๐-๙) ให้แปลงเป็นเลขอารบิก
-3. วันที่: ถ้าเป็นปีพุทธศักราช (พ.ศ. เช่น 2568/2569 หรือปีสองหลักเช่น 68) ให้แปลงเป็นคริสต์ศักราชก่อน (พ.ศ. - 543) แล้วตอบรูปแบบ YYYY-MM-DD
+3. วันที่ ตอบรูปแบบ YYYY-MM-DD โดยตีความปีดังนี้: ปี 25xx = พ.ศ. ให้ลบ 543 (เช่น 2569→2026), ปีสองหลัก xx = พ.ศ. 25xx (เช่น 69 = 2569→2026), ปี 20xx = ค.ศ. อยู่แล้วใช้ตามนั้น รูปแบบไทยมักเป็น วัน/เดือน/ปี หรือ วัน.เดือน.ปี
 4. เลขประจำตัวผู้เสียภาษี: ตอบเป็นตัวเลข 13 หลักติดกันไม่มีขีด
-5. ประเภทเอกสาร: "tax_invoice_full" = มีคำว่าใบกำกับภาษี (เต็มรูป มีชื่อ-ที่อยู่ผู้ซื้อ), "tax_invoice_abb" = ใบกำกับภาษีอย่างย่อ/ABB, "receipt" = ใบเสร็จ/บิลเงินสดที่ไม่ใช่ใบกำกับภาษี, "delivery_note" = ใบส่งของ, "other" = อื่นๆ
-6. line_items: เก็บทุกบรรทัดสินค้า/บริการ ตาม description ที่พิมพ์จริง ห้ามรวมบรรทัดส่วนลด/ยอดรวมเข้าเป็นสินค้า ถ้ามีส่วนลดให้ใส่ใน discount
-7. ตัวเลขเงิน: ตอบเป็น number ไม่มี comma, subtotal = ยอดก่อน VAT (หรือยอดรวมถ้าไม่มี VAT), vat_amount = จำนวน VAT ตามที่พิมพ์, total = ยอดสุทธิที่ต้องชำระ
-8. ก่อนตอบ ให้ตรวจทานว่า ผลรวม line_items ใกล้เคียง subtotal และ subtotal - discount + vat_amount ≈ total ถ้าไม่ตรงให้อ่านซ้ำอย่างละเอียด และถ้ายังไม่ตรงให้ระบุใน warnings
-9. จัดหมวดหมู่ต้นทุนให้แต่ละรายการ (category): "raw_material" = วัตถุดิบ/ส่วนผสมที่นำไปผลิต, "merchandise" = สินค้าสำเร็จรูปซื้อมาขายต่อ, "packaging" = บรรจุภัณฑ์ ถุง กล่อง, "supplies" = วัสดุสิ้นเปลือง ของใช้ในร้าน, "equipment" = อุปกรณ์/เครื่องมือ/เครื่องใช้, "shipping" = ค่าขนส่ง, "utilities" = ค่าน้ำ ไฟ เน็ต โทรศัพท์, "service_other" = ค่าบริการหรืออื่นๆ ถ้าไม่แน่ใจให้เป็น null
-10. confidence: "high" = ภาพชัด อ่านได้ครบ, "medium" = อ่านได้ส่วนใหญ่แต่บางจุดไม่แน่ใจ, "low" = ภาพมัว/ไม่ครบ/ไม่แน่ใจหลายจุด
-11. warnings เขียนเป็นภาษาไทยสั้นๆ`;
+5. ประเภทเอกสาร: "tax_invoice_full" = มีคำว่าใบกำกับภาษี (เต็มรูป มีชื่อ-ที่อยู่ผู้ซื้อ), "tax_invoice_abb" = ใบกำกับภาษีอย่างย่อ/ABB, "receipt" = ใบเสร็จรับเงิน/บิลเงินสด, "delivery_note" = ใบส่งของ/ใบส่งสินค้า, "temp_delivery" = ใบส่งของชั่วคราว, "quotation" = ใบเสนอขาย/ใบเสนอราคา, "goods_loan" = ใบยืมสินค้า, "billing_note" = ใบวางบิล/ใบแจ้งหนี้, "handwritten_bill" = บิลเขียนมือบนกระดาษ, "other" = อื่นๆ (เอกสารที่เป็นทั้งใบส่งของ/ใบกำกับภาษีในใบเดียว ให้ถือเป็น tax_invoice_full)
+6. ผู้ซื้อ vs ผู้ขาย: ช่อง "ลูกค้า/นามลูกค้า/ในนาม" คือผู้ซื้อ ส่วนหัวกระดาษ/ตราประทับ/ชื่อบริษัทผู้ออกเอกสารคือผู้ขาย ถ้าระบุชื่อร้านผู้ซื้อมาให้ในคำสั่ง: ชื่อนั้นเป็น buyer เสมอ ห้ามใส่เป็น seller เด็ดขาด — บิลเขียนมือที่มีแต่ชื่อร้านผู้ซื้อ ให้ seller เป็น null ถ้าผู้ขายระบุแค่ตัวย่อ/โค้ด (เช่น V-N, CST) ให้ใช้ตัวย่อนั้นเป็นชื่อผู้ขาย
+7. line_items: เก็บทุกบรรทัดสินค้า/บริการ ตาม description ที่พิมพ์จริง ห้ามรวมบรรทัดส่วนลด/ยอดรวมเข้าเป็นสินค้า amount ของแต่ละบรรทัดใช้ตามคอลัมน์จำนวนเงินที่พิมพ์ (ซึ่งมักเป็นยอดสุทธิหลังส่วนลดของบรรทัดแล้ว เช่นกรณีส่วนลดซ้อน "30+25%") ห้ามคำนวณเองจาก ราคา×จำนวน
+8. ตัวเขียนมือที่แก้/เพิ่มบนเอกสาร (เช่น ขีดฆ่ายอด เขียนส่วนลดเงินสด -2% แล้วเขียนยอดใหม่) ถือเป็นการแก้ไขที่มีผลจริง: ให้ total เป็นยอดสุดท้ายหลังแก้ และอธิบายการแก้ไขใน notes
+9. ตัวเลขเงิน: ตอบเป็น number ไม่มี comma, subtotal = มูลค่าก่อน VAT ตามที่พิมพ์ (หรือยอดรวมรายการถ้าไม่มี VAT), discount = ส่วนลดท้ายบิล (บาท ไม่ใช่ %), vat_amount = จำนวน VAT ตามที่พิมพ์, total = ยอดสุทธิที่ต้องชำระจริง
+10. ก่อนตอบ ตรวจทานความสอดคล้องของยอดเงิน โดยยอมรับได้หลายแบบ: ผลรวมรายการ ≈ subtotal, หรือ ผลรวมรายการ − discount ≈ total (กรณีราคารวม VAT), หรือ subtotal − discount + vat_amount ≈ total ถ้าไม่เข้าเคสไหนเลยให้อ่านซ้ำ และถ้ายังไม่ตรงให้ระบุใน warnings
+11. สถานะการจ่ายเงิน (paid): true ถ้ามีตราประทับ/ข้อความ "จ่ายเงินแล้ว/ชำระแล้ว/เงินสด(จ่ายแล้ว)", false ถ้าเป็นเครดิต/ระบุวันครบกำหนดและไม่มีหลักฐานว่าจ่ายแล้ว, null ถ้าไม่ทราบ และ due_date = วันครบกำหนดชำระ/กำหนดชำระ ถ้ามี
+12. จัดหมวดหมู่ต้นทุนให้แต่ละรายการ (category): "raw_material" = วัตถุดิบ/ส่วนผสมที่นำไปผลิต, "merchandise" = สินค้าสำเร็จรูปซื้อมาขายต่อ, "packaging" = บรรจุภัณฑ์ ถุง กล่อง, "supplies" = วัสดุสิ้นเปลือง ของใช้ในร้าน, "equipment" = อุปกรณ์/เครื่องมือ/เครื่องใช้, "shipping" = ค่าขนส่ง, "utilities" = ค่าน้ำ ไฟ เน็ต โทรศัพท์, "service_other" = ค่าบริการหรืออื่นๆ ถ้าไม่แน่ใจให้เป็น null
+13. confidence: "high" = ภาพชัด อ่านได้ครบ, "medium" = อ่านได้ส่วนใหญ่แต่บางจุดไม่แน่ใจ, "low" = ภาพมัว/ลายมืออ่านยาก/ไม่แน่ใจหลายจุด — บิลเขียนมือให้ไม่เกิน "medium" เสมอ
+14. warnings เขียนเป็นภาษาไทยสั้นๆ`;
 
 const EXTRACT_TOOL: Anthropic.Tool = {
   name: "record_receipt",
@@ -53,12 +56,17 @@ const EXTRACT_TOOL: Anthropic.Tool = {
     required: [
       "document_type", "seller", "buyer", "doc_number", "doc_date",
       "line_items", "subtotal", "discount", "vat_rate", "vat_amount",
-      "total", "payment_method", "notes", "confidence", "warnings",
+      "total", "payment_method", "paid", "due_date", "notes",
+      "confidence", "warnings",
     ],
     properties: {
       document_type: {
         type: "string",
-        enum: ["tax_invoice_full", "tax_invoice_abb", "receipt", "delivery_note", "other"],
+        enum: [
+          "tax_invoice_full", "tax_invoice_abb", "receipt", "delivery_note",
+          "temp_delivery", "quotation", "goods_loan", "billing_note",
+          "handwritten_bill", "other",
+        ],
       },
       seller: {
         type: "object",
@@ -112,6 +120,8 @@ const EXTRACT_TOOL: Anthropic.Tool = {
       vat_amount: { type: ["number", "null"] },
       total: { type: ["number", "null"] },
       payment_method: { type: ["string", "null"] },
+      paid: { type: ["boolean", "null"] },
+      due_date: { type: ["string", "null"], description: "วันครบกำหนดชำระ YYYY-MM-DD ค.ศ." },
       notes: { type: ["string", "null"] },
       confidence: { type: "string", enum: ["high", "medium", "low"] },
       warnings: { type: "array", items: { type: "string" } },
@@ -145,14 +155,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { image?: string; mediaType?: string };
+  let body: { image?: string; mediaType?: string; buyerHint?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "รูปแบบคำขอไม่ถูกต้อง" }, { status: 400 });
   }
 
-  const { image, mediaType } = body;
+  const { image, mediaType, buyerHint } = body;
   if (!image || typeof image !== "string") {
     return NextResponse.json({ error: "ไม่พบข้อมูลรูปภาพ" }, { status: 400 });
   }
@@ -183,7 +193,11 @@ export async function POST(req: NextRequest) {
             },
             {
               type: "text",
-              text: "อ่านข้อมูลจากภาพใบกำกับภาษี/ใบเสร็จนี้ แล้วเรียก record_receipt",
+              text:
+                "อ่านข้อมูลจากภาพเอกสารการค้านี้ แล้วเรียก record_receipt" +
+                (buyerHint && typeof buyerHint === "string" && buyerHint.length <= 200
+                  ? ` — ชื่อร้านผู้ซื้อ (ร้านของเรา) คือ "${buyerHint}" ถ้าพบชื่อนี้ในเอกสารให้เป็น buyer เสมอ ห้ามเป็น seller`
+                  : ""),
             },
           ],
         },

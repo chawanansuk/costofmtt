@@ -15,6 +15,7 @@ function ReceiptsList() {
   const [month, setMonth] = useState<string>("");
   const [docType, setDocType] = useState<string>("");
   const [vatOnly, setVatOnly] = useState(false);
+  const [unpaidOnly, setUnpaidOnly] = useState(false);
 
   const receipts = useLiveQuery(
     () => db.receipts.orderBy("createdAt").reverse().toArray(),
@@ -33,6 +34,7 @@ function ReceiptsList() {
       if (month && monthKey(r.docDate, r.createdAt) !== month) return false;
       if (docType && r.documentType !== docType) return false;
       if (vatOnly && !r.vatClaimable) return false;
+      if (unpaidOnly && r.paid !== false) return false;
       if (search) {
         const q = search.toLowerCase();
         const hay = `${r.sellerName ?? ""} ${r.docNumber ?? ""} ${r.notes ?? ""}`.toLowerCase();
@@ -40,7 +42,7 @@ function ReceiptsList() {
       }
       return true;
     });
-  }, [receipts, search, month, docType, vatOnly]);
+  }, [receipts, search, month, docType, vatOnly, unpaidOnly]);
 
   const sum = filtered.reduce((s, r) => s + r.total, 0);
 
@@ -95,7 +97,13 @@ function ReceiptsList() {
           className={`btn btn-sm ${vatOnly ? "btn-primary" : "btn-secondary"}`}
           onClick={() => setVatOnly((v) => !v)}
         >
-          {vatOnly ? "✓ " : ""}เฉพาะขอคืน VAT ได้
+          {vatOnly ? "✓ " : ""}ขอคืน VAT ได้
+        </button>
+        <button
+          className={`btn btn-sm ${unpaidOnly ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => setUnpaidOnly((v) => !v)}
+        >
+          {unpaidOnly ? "✓ " : ""}ค้างจ่าย
         </button>
       </div>
 
@@ -120,6 +128,11 @@ function ReceiptsList() {
                 {r.docNumber ? ` · เลขที่ ${r.docNumber}` : ""}
               </div>
               <div className="row wrap mt-2" style={{ gap: 6 }}>
+                {r.paid === false && (
+                  <span className="badge badge-danger">
+                    ค้างจ่าย{r.dueDate ? ` · ${thaiDate(r.dueDate)}` : ""}
+                  </span>
+                )}
                 {r.vatClaimable && <span className="badge badge-ok">ขอคืน VAT ได้</span>}
                 {r.confidence === "low" && (
                   <span className="badge badge-warn">ควรตรวจทาน</span>

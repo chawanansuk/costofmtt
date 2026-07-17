@@ -23,9 +23,21 @@ export default function SettingsPage() {
   }), []);
 
   const [passcode, setPasscode] = useState("");
+  const [myShop, setMyShop] = useState("");
   useEffect(() => {
     setPasscode(localStorage.getItem("costsnap:passcode") ?? "");
+    setMyShop(localStorage.getItem("costsnap:myshop") ?? "");
   }, []);
+  function saveMyShop() {
+    if (myShop.trim()) {
+      localStorage.setItem("costsnap:myshop", myShop.trim());
+      setMsg("บันทึกชื่อร้านแล้ว — AI จะใช้แยกผู้ซื้อ/ผู้ขายให้แม่นขึ้น");
+    } else {
+      localStorage.removeItem("costsnap:myshop");
+      setMsg("ลบชื่อร้านแล้ว");
+    }
+    setErr(null);
+  }
   function savePasscode() {
     if (passcode.trim()) {
       localStorage.setItem("costsnap:passcode", passcode.trim());
@@ -65,6 +77,26 @@ export default function SettingsPage() {
 
       {msg && <div className="alert alert-ok mt-2">✓ {msg}</div>}
       {err && <div className="alert alert-danger mt-2">{err}</div>}
+
+      <div className="card mt-3">
+        <div className="card-title">ชื่อร้านของฉัน (ผู้ซื้อ)</div>
+        <p className="muted small" style={{ marginBottom: 10 }}>
+          ใส่ชื่อร้านตามที่ผู้ขายมักเขียนบนบิล (เช่น &quot;ม.ทวีภัณฑ์&quot;) —
+          AI จะรู้ว่าชื่อนี้คือผู้ซื้อเสมอ ช่วยให้อ่านบิลเขียนมือ/ใบส่งของแม่นขึ้นมาก
+        </p>
+        <div className="row">
+          <div className="field" style={{ flex: 1 }}>
+            <input
+              placeholder="เช่น ม.ทวีภัณฑ์"
+              value={myShop}
+              onChange={(e) => setMyShop(e.target.value)}
+            />
+          </div>
+          <button className="btn btn-secondary" onClick={saveMyShop}>
+            บันทึก
+          </button>
+        </div>
+      </div>
 
       <div className="card mt-3">
         <div className="card-title">รหัสผ่านแอป (สำหรับเซิร์ฟเวอร์ที่ตั้ง APP_PASSCODE)</div>

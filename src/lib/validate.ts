@@ -29,16 +29,22 @@ export function validateExtraction(data: ExtractedReceipt): ValidationResult {
   const base =
     data.subtotal != null ? data.subtotal - (data.discount ?? 0) : null;
 
+  const discount = data.discount ?? 0;
   const itemsSumOk =
-    amounts.length > 0 && data.subtotal != null
-      ? closeTo(itemsSum, data.subtotal) ||
-        (data.total != null && closeTo(itemsSum, data.total))
+    amounts.length > 0 && (data.subtotal != null || data.total != null)
+      ? (data.subtotal != null && closeTo(itemsSum, data.subtotal)) ||
+        (data.total != null && closeTo(itemsSum, data.total)) ||
+        // กรณีราคารวม VAT + ส่วนลดท้ายบิล: รวมรายการ − ส่วนลด = ยอดสุทธิ
+        (data.total != null && closeTo(itemsSum - discount, data.total)) ||
+        (data.subtotal != null && closeTo(itemsSum - discount, data.subtotal))
       : null;
 
   const totalMathOk =
     base != null && data.vat_amount != null && data.total != null
       ? closeTo(base + data.vat_amount, data.total) ||
-        // กรณีราคารวม VAT แล้ว (VAT-included): total = subtotal
+        // กรณีมูลค่าสินค้า+VAT = ยอดสุทธิ โดยส่วนลดถูกหักก่อนถอด VAT แล้ว
+        closeTo(data.subtotal! + data.vat_amount, data.total) ||
+        // กรณีราคารวม VAT แล้ว (VAT-included): total = subtotal - discount
         closeTo(base, data.total)
       : null;
 

@@ -97,6 +97,8 @@ export default function ReceiptDetailPage({
       vat_amount: receipt.vatAmount || null,
       total: receipt.total,
       payment_method: receipt.paymentMethod ?? null,
+      paid: receipt.paid ?? null,
+      due_date: receipt.dueDate ?? null,
       notes: receipt.notes,
       confidence: receipt.confidence,
       warnings: receipt.warnings,
@@ -139,6 +141,12 @@ export default function ReceiptDetailPage({
       {saveMsg && <div className="alert alert-ok mt-2">✓ {saveMsg}</div>}
 
       <div className="row wrap mt-2" style={{ gap: 6 }}>
+        {receipt.paid === false && (
+          <span className="badge badge-danger">
+            ค้างจ่าย{receipt.dueDate ? ` · ครบกำหนด ${thaiDate(receipt.dueDate)}` : ""}
+          </span>
+        )}
+        {receipt.paid === true && <span className="badge badge-ok">จ่ายแล้ว ✓</span>}
         {receipt.vatClaimable ? (
           <span className="badge badge-ok">ใช้ขอคืน VAT ซื้อได้</span>
         ) : (

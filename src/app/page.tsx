@@ -55,6 +55,12 @@ export default function DashboardPage() {
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 5);
 
+    // บิลค้างจ่าย (ซื้อเครดิต) — เรียงตามวันครบกำหนดใกล้สุดก่อน
+    const unpaid = receipts
+      .filter((r) => r.paid === false)
+      .sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"));
+    const unpaidTotal = unpaid.reduce((s, r) => s + r.total, 0);
+
     // ต้นทุนตามหมวดหมู่เดือนนี้ (อิงเดือนของใบที่รายการนั้นสังกัด)
     const receiptMonth = new Map<number, string>();
     for (const r of receipts) {
@@ -78,8 +84,11 @@ export default function DashboardPage() {
     return {
       monthCost, monthVat, monthCount, chart, topSellers, recent,
       totalCount: receipts.length, categories, categoryMax,
+      unpaid, unpaidTotal,
     };
   }, [receipts, items]);
+
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <div>
@@ -130,6 +139,41 @@ export default function DashboardPage() {
               <div className="hint">ใบ</div>
             </div>
           </div>
+
+          {stats && stats.unpaid.length > 0 && (
+            <div className="card mt-4" style={{ borderColor: "var(--danger)" }}>
+              <div className="row spread">
+                <div className="card-title" style={{ marginBottom: 0, color: "var(--danger)" }}>
+                  💳 บิลค้างจ่าย {stats.unpaid.length} ใบ
+                </div>
+                <div className="amount" style={{ color: "var(--danger)" }}>
+                  {baht(stats.unpaidTotal)} ฿
+                </div>
+              </div>
+              <table className="data mt-2">
+                <tbody>
+                  {stats.unpaid.slice(0, 5).map((r) => {
+                    const overdue = r.dueDate != null && r.dueDate < today;
+                    return (
+                      <tr key={r.id}>
+                        <td>
+                          <Link href={`/receipts/${r.id}`}>
+                            {r.sellerName ?? "(ไม่ระบุผู้ขาย)"}
+                          </Link>
+                          <div className="small" style={{ color: overdue ? "var(--danger)" : "var(--text-dim)" }}>
+                            {r.dueDate
+                              ? `${overdue ? "เลยกำหนด! " : "ครบกำหนด "}${thaiDate(r.dueDate)}`
+                              : "ไม่ระบุกำหนดชำระ"}
+                          </div>
+                        </td>
+                        <td className="num">{baht(r.total)} ฿</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {stats && (
             <div className="card mt-4">

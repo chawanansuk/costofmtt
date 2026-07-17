@@ -27,12 +27,15 @@ export async function exportReceiptsCsv() {
   const rows: (string | number | null)[][] = [
     [
       "วันที่เอกสาร", "เลขที่เอกสาร", "ประเภท", "ผู้ขาย", "เลขผู้เสียภาษีผู้ขาย",
-      "สาขา", "ยอดก่อน VAT", "ส่วนลด", "VAT", "ยอดสุทธิ", "ขอคืน VAT ได้", "หมายเหตุ",
+      "สาขา", "ยอดก่อน VAT", "ส่วนลด", "VAT", "ยอดสุทธิ", "ขอคืน VAT ได้",
+      "สถานะจ่าย", "ครบกำหนดชำระ", "หมายเหตุ",
     ],
     ...receipts.map((r) => [
       r.docDate, r.docNumber, r.documentType, r.sellerName, r.sellerTaxId,
       r.sellerBranch, r.subtotal, r.discount, r.vatAmount, r.total,
-      r.vatClaimable ? "ใช่" : "ไม่", r.notes,
+      r.vatClaimable ? "ใช่" : "ไม่",
+      r.paid === true ? "จ่ายแล้ว" : r.paid === false ? "ค้างจ่าย" : "",
+      r.dueDate, r.notes,
     ]),
   ];
   download(toCsv(rows), `costsnap-receipts-${today()}.csv`, "text/csv;charset=utf-8");

@@ -45,5 +45,19 @@ export const DOC_TYPE_LABEL: Record<string, string> = {
   tax_invoice_abb: "ใบกำกับภาษีอย่างย่อ",
   receipt: "ใบเสร็จรับเงิน",
   delivery_note: "ใบส่งของ",
+  temp_delivery: "ใบส่งของชั่วคราว",
+  quotation: "ใบเสนอขาย",
+  goods_loan: "ใบยืมสินค้า",
+  billing_note: "ใบวางบิล/ใบแจ้งหนี้",
+  handwritten_bill: "บิลเขียนมือ",
   other: "เอกสารอื่น",
 };
+
+// เอกสารชั่วคราวที่มักมีใบกำกับภาษีจริงตามมาภายหลัง (เสี่ยงบันทึกซ้ำ)
+export const TEMP_DOC_TYPES = new Set([
+  "temp_delivery",
+  "quotation",
+  "goods_loan",
+  "delivery_note",
+  "billing_note",
+]);

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { ExtractedReceipt, LineItem, CostCategory } from "@/lib/types";
 import { validateExtraction } from "@/lib/validate";
-import { baht, DOC_TYPE_LABEL, CATEGORY_LABEL } from "@/lib/format";
+import { baht, DOC_TYPE_LABEL, CATEGORY_LABEL, TEMP_DOC_TYPES } from "@/lib/format";
 
 interface Props {
   initial: ExtractedReceipt;
@@ -101,6 +101,14 @@ export default function ReceiptForm({
         ) : (
           <span className="badge badge-neutral">ไม่เข้าเงื่อนไขขอคืน VAT</span>
         )}
+        {data.paid === false && (
+          <span className="badge badge-accent">ยังไม่จ่าย (เครดิต)</span>
+        )}
+        {TEMP_DOC_TYPES.has(data.document_type) && (
+          <span className="badge badge-warn">
+            ใบชั่วคราว — ถ้าใบกำกับภาษีจริงตามมา ให้สแกนแทนแล้วลบใบนี้
+          </span>
+        )}
       </div>
 
       {validation.missingFields.length > 0 && (
@@ -147,6 +155,34 @@ export default function ReceiptForm({
             <input
               value={data.payment_method ?? ""}
               onChange={(e) => set({ payment_method: e.target.value || null })}
+            />
+          </div>
+          <div className="field">
+            <label>สถานะจ่ายเงิน</label>
+            <select
+              value={data.paid === true ? "paid" : data.paid === false ? "unpaid" : ""}
+              onChange={(e) =>
+                set({
+                  paid:
+                    e.target.value === "paid"
+                      ? true
+                      : e.target.value === "unpaid"
+                      ? false
+                      : null,
+                })
+              }
+            >
+              <option value="">— ไม่ระบุ —</option>
+              <option value="paid">จ่ายแล้ว ✓</option>
+              <option value="unpaid">ยังไม่จ่าย (เครดิต)</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>วันครบกำหนดชำระ</label>
+            <input
+              type="date"
+              value={data.due_date ?? ""}
+              onChange={(e) => set({ due_date: e.target.value || null })}
             />
           </div>
         </div>

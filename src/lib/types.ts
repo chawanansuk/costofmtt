@@ -4,6 +4,11 @@ export type DocumentType =
   | "tax_invoice_abb"
   | "receipt"
   | "delivery_note"
+  | "temp_delivery" // ใบส่งของชั่วคราว — ใบกำกับภาษีจริงมักตามมาทีหลัง
+  | "quotation" // ใบเสนอขาย
+  | "goods_loan" // ใบยืมสินค้า
+  | "billing_note" // ใบวางบิล/ใบแจ้งหนี้
+  | "handwritten_bill" // บิลเขียนมือ
   | "other";
 
 export interface Party {
@@ -46,6 +51,8 @@ export interface ExtractedReceipt {
   vat_amount: number | null;
   total: number | null;
   payment_method: string | null;
+  paid: boolean | null; // true = มีตรา/ข้อความจ่ายเงินแล้ว, false = เครดิต/ยังไม่จ่าย, null = ไม่ทราบ
+  due_date: string | null; // วันครบกำหนดชำระ (YYYY-MM-DD ค.ศ.)
   notes: string | null;
   confidence: "high" | "medium" | "low";
   warnings: string[];
@@ -82,6 +89,8 @@ export interface ReceiptRecord {
   buyerName: string | null;
   buyerTaxId: string | null;
   paymentMethod: string | null;
+  paid: boolean | null;
+  dueDate: string | null;
   subtotal: number;
   discount: number;
   vatAmount: number;

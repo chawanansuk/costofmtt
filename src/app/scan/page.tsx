@@ -4,8 +4,9 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { compressImage, type CompressedImage } from "@/lib/image";
 import type { ExtractResponse, ExtractedReceipt } from "@/lib/types";
-import { findDuplicate } from "@/lib/db";
+import { findDuplicate, findRelated } from "@/lib/db";
 import { addReceipt } from "@/lib/save";
+import { DOC_TYPE_LABEL, thaiDate } from "@/lib/format";
 import ReceiptForm from "@/components/ReceiptForm";
 
 type Phase = "idle" | "preparing" | "extracting" | "review" | "saving";
@@ -52,17 +53,19 @@ export default function ScanPage() {
     setExtracted(null);
     setPhase("extracting");
     try {
-      const savedPasscode =
-        typeof localStorage !== "undefined"
-          ? localStorage.getItem("costsnap:passcode")
-          : null;
+      const savedPasscode = localStorage.getItem("costsnap:passcode");
+      const myShop = localStorage.getItem("costsnap:myshop");
       const res = await fetch("/api/extract", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(savedPasscode ? { "x-app-passcode": savedPasscode } : {}),
         },
-        body: JSON.stringify({ image: img.base64, mediaType: img.mediaType }),
+        body: JSON.stringify({
+          image: img.base64,
+          mediaType: img.mediaType,
+          ...(myShop ? { buyerHint: myShop } : {}),
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "อ่านข้อมูลไม่สำเร็จ");
@@ -75,6 +78,21 @@ export default function ScanPage() {
         setDuplicateWarning(
           `อาจเป็นใบซ้ำ: เลขที่ ${dup.docNumber} ของ ${dup.sellerName ?? "ผู้ขายรายนี้"} ถูกบันทึกไว้แล้ว`
         );
+      } else {
+        // ใบส่งของชั่วคราว/ใบเสนอขาย มักมีใบกำกับภาษีจริงตามมา — เช็คยอด+ผู้ขายซ้ำ
+        const related = await findRelated(
+          data.seller.tax_id,
+          data.seller.name,
+          data.total,
+          data.doc_date
+        );
+        if (related) {
+          setDuplicateWarning(
+            `อาจเป็นรายการเดียวกับ ${DOC_TYPE_LABEL[related.documentType]} ` +
+              `ของ ${related.sellerName ?? "ผู้ขายรายนี้"} ยอด ${related.total.toLocaleString("th-TH")} บาท ` +
+              `(${thaiDate(related.docDate)}) ที่บันทึกไว้แล้ว — ถ้าใบนี้คือใบกำกับภาษีที่ออกตามมา แนะนำให้ลบใบเดิมทิ้ง`
+          );
+        }
       }
       setPhase("review");
     } catch (e) {

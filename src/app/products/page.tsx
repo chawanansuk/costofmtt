@@ -30,7 +30,9 @@ export default function ProductsPage() {
     const map = new Map<string, ProductSummary & { _lastTs: string }>();
     for (const it of items) {
       if (!it.normalizedName) continue;
-      const key = it.normalizedName;
+      // รวมกลุ่มด้วย ชื่อ+หน่วย — สินค้าเดียวกันคนละหน่วย (เช่น ลัง กับ สำรับ)
+      // ราคาต่อหน่วยต่างกันมาก ห้ามเฉลี่ยข้ามหน่วย
+      const key = `${it.normalizedName}|${it.unit ?? ""}`;
       const cur = map.get(key);
       const date = it.docDate ?? "";
       if (!cur) {
@@ -72,14 +74,15 @@ export default function ProductsPage() {
     return list.sort((a, b) => b.totalSpent - a.totalSpent);
   }, [items]);
 
-  // ประวัติการซื้อต่อสินค้า (ล่าสุดก่อน) สำหรับ drill-down
+  // ประวัติการซื้อต่อสินค้า (ล่าสุดก่อน) สำหรับ drill-down — key เดียวกับด้านบน
   const history = useMemo(() => {
     const m = new Map<string, NonNullable<typeof items>>();
     for (const it of items ?? []) {
       if (!it.normalizedName) continue;
-      const arr = m.get(it.normalizedName) ?? [];
+      const key = `${it.normalizedName}|${it.unit ?? ""}`;
+      const arr = m.get(key) ?? [];
       arr.push(it);
-      m.set(it.normalizedName, arr);
+      m.set(key, arr);
     }
     for (const arr of m.values()) {
       arr.sort((a, b) => (b.docDate ?? "").localeCompare(a.docDate ?? ""));
