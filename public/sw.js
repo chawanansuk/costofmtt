@@ -1,6 +1,6 @@
 // Service worker แบบ network-first: ออนไลน์ใช้ของสดเสมอ, ออฟไลน์ fallback จาก cache
 // ข้อมูลผู้ใช้อยู่ใน IndexedDB อยู่แล้ว — SW ดูแลเฉพาะ shell ของแอป
-const CACHE = "costsnap-v1";
+const CACHE = "costsnap-v2";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

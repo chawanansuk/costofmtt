@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import {
@@ -21,6 +21,21 @@ export default function SettingsPage() {
     receipts: await db.receipts.count(),
     items: await db.items.count(),
   }), []);
+
+  const [passcode, setPasscode] = useState("");
+  useEffect(() => {
+    setPasscode(localStorage.getItem("costsnap:passcode") ?? "");
+  }, []);
+  function savePasscode() {
+    if (passcode.trim()) {
+      localStorage.setItem("costsnap:passcode", passcode.trim());
+      setMsg("บันทึกรหัสผ่านแอปแล้ว");
+    } else {
+      localStorage.removeItem("costsnap:passcode");
+      setMsg("ลบรหัสผ่านแอปออกจากเครื่องนี้แล้ว");
+    }
+    setErr(null);
+  }
 
   async function run(fn: () => Promise<unknown>, okMsg?: string) {
     setBusy(true);
@@ -50,6 +65,28 @@ export default function SettingsPage() {
 
       {msg && <div className="alert alert-ok mt-2">✓ {msg}</div>}
       {err && <div className="alert alert-danger mt-2">{err}</div>}
+
+      <div className="card mt-3">
+        <div className="card-title">รหัสผ่านแอป (สำหรับเซิร์ฟเวอร์ที่ตั้ง APP_PASSCODE)</div>
+        <p className="muted small" style={{ marginBottom: 10 }}>
+          ถ้าผู้ดูแลตั้งรหัสไว้ตอน deploy (env <code>APP_PASSCODE</code>)
+          ให้ใส่รหัสเดียวกันที่นี่ เพื่อป้องกันคนอื่นแอบใช้ AI ของเรา
+          รหัสเก็บอยู่ในเครื่องนี้เท่านั้น
+        </p>
+        <div className="row">
+          <div className="field" style={{ flex: 1 }}>
+            <input
+              type="password"
+              placeholder="ไม่ต้องใส่ถ้าเซิร์ฟเวอร์ไม่ได้ตั้งรหัส"
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value)}
+            />
+          </div>
+          <button className="btn btn-secondary" onClick={savePasscode}>
+            บันทึก
+          </button>
+        </div>
+      </div>
 
       <div className="card mt-3">
         <div className="card-title">ส่งออกข้อมูล (เปิดใน Excel ได้)</div>

@@ -7,7 +7,10 @@ export const metadata: Metadata = {
   title: "CostSnap — บันทึกต้นทุนจากใบกำกับภาษี",
   description: "ถ่ายรูปใบกำกับภาษี ให้ AI อ่านค่า และบันทึกต้นทุนสินค้า",
   manifest: "/manifest.json",
-  icons: { icon: "/icon.svg" },
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/icon-192.png", sizes: "192x192" }],
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {

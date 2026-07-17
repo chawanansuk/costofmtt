@@ -10,6 +10,24 @@ const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"] as 
 // จำกัด payload ~8MB (base64 พองขึ้น ~33% จากไฟล์จริง)
 const MAX_BASE64_LENGTH = 11_000_000;
 
+// กันยิงถล่ม: จำกัดต่อ IP ต่อนาที (in-memory ต่อ instance — ชั้นแรกพอสำหรับแอปส่วนตัว)
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX_REQUESTS = 8;
+const rateHits = new Map<string, number[]>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  if (rateHits.size > 2000) rateHits.clear(); // กัน map โตไม่จำกัด
+  const recent = (rateHits.get(ip) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  if (recent.length >= RATE_MAX_REQUESTS) {
+    rateHits.set(ip, recent);
+    return true;
+  }
+  recent.push(now);
+  rateHits.set(ip, recent);
+  return false;
+}
+
 const SYSTEM_PROMPT = `คุณคือระบบอ่านข้อมูลจากภาพใบกำกับภาษี/ใบเสร็จของไทย ให้สกัดข้อมูลอย่างแม่นยำที่สุดตามกติกาต่อไปนี้:
 
 1. อ่านค่า "ตามที่พิมพ์จริง" เท่านั้น ห้ามเดา ห้ามแปลภาษา ห้ามเติมข้อมูลที่ไม่มีในภาพ ค่าที่อ่านไม่ได้/ไม่มี ให้เป็น null และใส่คำอธิบายใน warnings
@@ -106,6 +124,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: "เซิร์ฟเวอร์ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY" },
       { status: 500 }
+    );
+  }
+
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  if (isRateLimited(ip)) {
+    return NextResponse.json(
+      { error: "ส่งรูปถี่เกินไป กรุณารอ 1 นาทีแล้วลองใหม่" },
+      { status: 429 }
+    );
+  }
+
+  // ถ้าตั้ง APP_PASSCODE ไว้ ต้องส่งรหัสมาด้วยทุกครั้ง (ตั้งรหัสได้ในหน้าตั้งค่า)
+  const passcode = process.env.APP_PASSCODE;
+  if (passcode && req.headers.get("x-app-passcode") !== passcode) {
+    return NextResponse.json(
+      { error: "ต้องใส่รหัสผ่านแอปให้ถูกต้องก่อนใช้งาน — ตั้งได้ที่หน้า ตั้งค่า" },
+      { status: 401 }
     );
   }
 

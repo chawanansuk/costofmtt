@@ -24,15 +24,16 @@ export default function ScanPage() {
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
 
   const current = queue[index] ?? null;
-  const remaining = queue.length - index;
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
+    // snapshot ก่อน เพราะ input จะถูกเคลียร์ค่าหลังเรียก
+    const fileList = Array.from(files);
     setError(null);
     setPhase("preparing");
     try {
       const imgs: CompressedImage[] = [];
-      for (const f of Array.from(files)) {
+      for (const f of fileList) {
         imgs.push(await compressImage(f));
       }
       setQueue(imgs);
@@ -51,9 +52,16 @@ export default function ScanPage() {
     setExtracted(null);
     setPhase("extracting");
     try {
+      const savedPasscode =
+        typeof localStorage !== "undefined"
+          ? localStorage.getItem("costsnap:passcode")
+          : null;
       const res = await fetch("/api/extract", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(savedPasscode ? { "x-app-passcode": savedPasscode } : {}),
+        },
         body: JSON.stringify({ image: img.base64, mediaType: img.mediaType }),
       });
       const json = await res.json();

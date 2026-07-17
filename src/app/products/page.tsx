@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { baht, thaiDate, CATEGORY_LABEL } from "@/lib/format";
 
 interface ProductSummary {
+  key: string; // normalizedName — ใช้เป็น react key และดึงประวัติ
   name: string;
   category: string | null;
   buyCount: number;
@@ -34,6 +35,7 @@ export default function ProductsPage() {
       const date = it.docDate ?? "";
       if (!cur) {
         map.set(key, {
+          key,
           name: it.description,
           category: it.category ?? null,
           buyCount: 1,
@@ -68,6 +70,21 @@ export default function ProductsPage() {
       avgUnitCost: p.totalQty > 0 ? p.totalSpent / p.totalQty : p.lastPrice,
     }));
     return list.sort((a, b) => b.totalSpent - a.totalSpent);
+  }, [items]);
+
+  // ประวัติการซื้อต่อสินค้า (ล่าสุดก่อน) สำหรับ drill-down
+  const history = useMemo(() => {
+    const m = new Map<string, NonNullable<typeof items>>();
+    for (const it of items ?? []) {
+      if (!it.normalizedName) continue;
+      const arr = m.get(it.normalizedName) ?? [];
+      arr.push(it);
+      m.set(it.normalizedName, arr);
+    }
+    for (const arr of m.values()) {
+      arr.sort((a, b) => (b.docDate ?? "").localeCompare(a.docDate ?? ""));
+    }
+    return m;
   }, [items]);
 
   const filtered = useMemo(() => {
@@ -122,8 +139,9 @@ export default function ProductsPage() {
         {filtered.map((p) => {
           const priceChanged =
             p.buyCount > 1 && Math.abs(p.maxPrice - p.minPrice) > 0.005;
+          const hist = history.get(p.key) ?? [];
           return (
-            <div key={p.name + p.lastDate} className="card">
+            <div key={p.key} className="card">
               <div className="row spread">
                 <div className="title" style={{ fontWeight: 600 }}>
                   {p.name}
@@ -152,6 +170,42 @@ export default function ProductsPage() {
                   </span>
                 )}
               </div>
+              {hist.length > 0 && (
+                <details className="mt-2">
+                  <summary className="muted small" style={{ cursor: "pointer" }}>
+                    ดูประวัติการซื้อ ({hist.length} ครั้ง)
+                  </summary>
+                  <div className="table-wrap mt-2">
+                    <table className="data">
+                      <thead>
+                        <tr>
+                          <th>วันที่</th>
+                          <th>ผู้ขาย</th>
+                          <th className="num">จำนวน</th>
+                          <th className="num">ราคา/หน่วย</th>
+                          <th className="num">รวม</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {hist.slice(0, 10).map((h) => (
+                          <tr key={h.id}>
+                            <td>{thaiDate(h.docDate)}</td>
+                            <td>{h.sellerName ?? "—"}</td>
+                            <td className="num">
+                              {h.quantity} {h.unit ?? ""}
+                            </td>
+                            <td className="num">{baht(h.unitPrice)}</td>
+                            <td className="num">{baht(h.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {hist.length > 10 && (
+                    <p className="muted small mt-2">แสดง 10 ครั้งล่าสุดจาก {hist.length}</p>
+                  )}
+                </details>
+              )}
             </div>
           );
         })}

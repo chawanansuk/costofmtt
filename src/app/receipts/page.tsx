@@ -13,6 +13,8 @@ function ReceiptsList() {
 
   const [search, setSearch] = useState("");
   const [month, setMonth] = useState<string>("");
+  const [docType, setDocType] = useState<string>("");
+  const [vatOnly, setVatOnly] = useState(false);
 
   const receipts = useLiveQuery(
     () => db.receipts.orderBy("createdAt").reverse().toArray(),
@@ -29,6 +31,8 @@ function ReceiptsList() {
     if (!receipts) return [];
     return receipts.filter((r) => {
       if (month && monthKey(r.docDate, r.createdAt) !== month) return false;
+      if (docType && r.documentType !== docType) return false;
+      if (vatOnly && !r.vatClaimable) return false;
       if (search) {
         const q = search.toLowerCase();
         const hay = `${r.sellerName ?? ""} ${r.docNumber ?? ""} ${r.notes ?? ""}`.toLowerCase();
@@ -36,7 +40,7 @@ function ReceiptsList() {
       }
       return true;
     });
-  }, [receipts, search, month]);
+  }, [receipts, search, month, docType, vatOnly]);
 
   const sum = filtered.reduce((s, r) => s + r.total, 0);
 
@@ -74,6 +78,25 @@ function ReceiptsList() {
             ))}
           </select>
         </div>
+      </div>
+
+      <div className="row mt-2">
+        <div className="field" style={{ flex: 1 }}>
+          <select value={docType} onChange={(e) => setDocType(e.target.value)}>
+            <option value="">ทุกประเภทเอกสาร</option>
+            {Object.entries(DOC_TYPE_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          className={`btn btn-sm ${vatOnly ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => setVatOnly((v) => !v)}
+        >
+          {vatOnly ? "✓ " : ""}เฉพาะขอคืน VAT ได้
+        </button>
       </div>
 
       <div className="mt-4">
