@@ -114,6 +114,7 @@ export default function ReceiptDetailPage({
           onSave={handleUpdate}
           onCancel={() => setEditing(false)}
           saveLabel="บันทึกการแก้ไข"
+          excludeReceiptId={receiptId}
         />
       </div>
     );

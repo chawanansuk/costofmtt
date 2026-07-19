@@ -24,9 +24,25 @@ export default function SettingsPage() {
 
   const [passcode, setPasscode] = useState("");
   const [myShop, setMyShop] = useState("");
+  const [storageInfo, setStorageInfo] = useState<{
+    persisted: boolean;
+    usageMB: number;
+  } | null>(null);
   useEffect(() => {
     setPasscode(localStorage.getItem("costsnap:passcode") ?? "");
     setMyShop(localStorage.getItem("costsnap:myshop") ?? "");
+    (async () => {
+      try {
+        const persisted = (await navigator.storage?.persisted?.()) ?? false;
+        const est = await navigator.storage?.estimate?.();
+        setStorageInfo({
+          persisted,
+          usageMB: (est?.usage ?? 0) / 1048576,
+        });
+      } catch {
+        // เบราว์เซอร์เก่าไม่รองรับ — ไม่ต้องแสดง
+      }
+    })();
   }, []);
   function saveMyShop() {
     if (myShop.trim()) {
@@ -145,6 +161,21 @@ export default function SettingsPage() {
         <p className="muted small" style={{ marginBottom: 10 }}>
           ไฟล์สำรอง (JSON) รวมข้อมูลและรูปภาพทั้งหมด ใช้กู้คืนหรือย้ายไปเครื่องใหม่ได้
         </p>
+        {storageInfo && (
+          <p className="muted small" style={{ marginBottom: 10 }}>
+            พื้นที่ที่ใช้: {storageInfo.usageMB.toFixed(1)} MB ·{" "}
+            {storageInfo.persisted ? (
+              <span style={{ color: "var(--ok)" }}>
+                ✓ เบราว์เซอร์รับปากว่าจะไม่ลบข้อมูลเอง
+              </span>
+            ) : (
+              <span style={{ color: "var(--warn)" }}>
+                ⚠️ เบราว์เซอร์อาจลบข้อมูลเองได้ถ้าพื้นที่เต็ม — ควรสำรองสม่ำเสมอ
+                (ติดตั้งแอปลงหน้าจอโฮมช่วยลดความเสี่ยง)
+              </span>
+            )}
+          </p>
+        )}
         <div className="stack">
           <button
             className="btn btn-secondary btn-block"

@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
+import { db } from "@/lib/db";
 import type { ExtractedReceipt, LineItem, CostCategory } from "@/lib/types";
-import { validateExtraction } from "@/lib/validate";
-import { baht, DOC_TYPE_LABEL, CATEGORY_LABEL, TEMP_DOC_TYPES } from "@/lib/format";
+import { validateExtraction, normalizeItemName } from "@/lib/validate";
+import { baht, thaiDate, DOC_TYPE_LABEL, CATEGORY_LABEL, TEMP_DOC_TYPES } from "@/lib/format";
 
 interface Props {
   initial: ExtractedReceipt;
@@ -13,7 +15,12 @@ interface Props {
   onCancel: () => void;
   cancelLabel?: string;
   saveLabel?: string;
+  // โหมดแก้ไข: ไม่เอารายการของใบตัวเองมาเทียบราคา
+  excludeReceiptId?: number;
 }
+
+// เตือนเมื่อราคา/หน่วยแพงกว่าการซื้อครั้งก่อนเกินเกณฑ์นี้
+const PRICE_ALERT_THRESHOLD = 0.1;
 
 const numOrNull = (s: string): number | null => {
   if (s.trim() === "") return null;
@@ -29,9 +36,53 @@ export default function ReceiptForm({
   onCancel,
   cancelLabel = "ยกเลิก",
   saveLabel,
+  excludeReceiptId,
 }: Props) {
   const [data, setData] = useState<ExtractedReceipt>(initial);
   const validation = useMemo(() => validateExtraction(data), [data]);
+
+  // เทียบราคากับการซื้อครั้งล่าสุดของสินค้าเดียวกัน (ชื่อ+หน่วยเดียวกัน)
+  const allItems = useLiveQuery(() => db.items.toArray(), []);
+  const priceAlerts = useMemo(() => {
+    if (!allItems) return [];
+    const alerts: {
+      name: string;
+      unit: string | null;
+      prev: number;
+      now: number;
+      pct: number;
+      prevDate: string | null;
+    }[] = [];
+    for (const it of data.line_items) {
+      const qty = it.quantity ?? 1;
+      const now =
+        it.amount != null && qty > 0 ? it.amount / qty : it.unit_price;
+      if (now == null || now <= 0) continue;
+      const key = normalizeItemName(it.description);
+      if (!key) continue;
+      const prev = allItems
+        .filter(
+          (p) =>
+            p.normalizedName === key &&
+            (p.unit ?? "") === (it.unit ?? "") &&
+            (excludeReceiptId == null || p.receiptId !== excludeReceiptId)
+        )
+        .sort((a, b) => (b.docDate ?? "").localeCompare(a.docDate ?? ""))[0];
+      if (!prev || prev.unitPrice <= 0) continue;
+      const pct = (now - prev.unitPrice) / prev.unitPrice;
+      if (pct >= PRICE_ALERT_THRESHOLD) {
+        alerts.push({
+          name: it.description,
+          unit: it.unit,
+          prev: prev.unitPrice,
+          now,
+          pct: pct * 100,
+          prevDate: prev.docDate,
+        });
+      }
+    }
+    return alerts;
+  }, [allItems, data.line_items, excludeReceiptId]);
 
   const set = (patch: Partial<ExtractedReceipt>) =>
     setData((d) => ({ ...d, ...patch }));
@@ -72,6 +123,21 @@ export default function ReceiptForm({
 
       {duplicateWarning && (
         <div className="alert alert-danger">⚠️ {duplicateWarning}</div>
+      )}
+
+      {priceAlerts.length > 0 && (
+        <div className="alert alert-warn">
+          <strong>📈 ราคาแพงขึ้นจากครั้งก่อน:</strong>
+          <ul>
+            {priceAlerts.map((a, i) => (
+              <li key={i}>
+                {a.name}: {baht(a.prev)} → {baht(a.now)} ฿/{a.unit ?? "หน่วย"}{" "}
+                (+{a.pct.toFixed(0)}%
+                {a.prevDate ? ` เทียบ ${thaiDate(a.prevDate)}` : ""})
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <div className="row wrap">

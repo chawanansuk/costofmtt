@@ -6,6 +6,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import { baht, thaiDate, monthKey, monthLabel, CATEGORY_LABEL } from "@/lib/format";
 import BarChart from "@/components/BarChart";
+import BackupReminder from "@/components/BackupReminder";
 
 function lastMonths(n: number): string[] {
   const out: string[] = [];
@@ -117,7 +118,8 @@ export default function DashboardPage() {
         </div>
       ) : (
         <>
-          <div className="stat-grid">
+          <BackupReminder />
+          <div className="stat-grid mt-3">
             <div className="stat">
               <div className="label">ต้นทุนเดือนนี้</div>
               <div className="value">{stats ? baht(stats.monthCost) : "…"}</div>

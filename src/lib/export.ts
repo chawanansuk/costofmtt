@@ -80,6 +80,21 @@ function base64ToBlob(b64: string, type: string): Blob {
   return new Blob([bytes], { type });
 }
 
+// สถานะการสำรองล่าสุด — ใช้ตัดสินใจแสดงป้ายเตือนบนแดชบอร์ด
+export interface BackupMarker {
+  at: number; // epoch ms
+  count: number; // จำนวนใบตอนสำรอง
+}
+
+export function getBackupMarker(): BackupMarker | null {
+  try {
+    const raw = localStorage.getItem("costsnap:lastBackup");
+    return raw ? (JSON.parse(raw) as BackupMarker) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function exportBackup() {
   const receipts = await db.receipts.toArray();
   const items = await db.items.toArray();
@@ -101,6 +116,12 @@ export async function exportBackup() {
     `costsnap-backup-${today()}.json`,
     "application/json"
   );
+  try {
+    localStorage.setItem(
+      "costsnap:lastBackup",
+      JSON.stringify({ at: Date.now(), count: receipts.length } satisfies BackupMarker)
+    );
+  } catch {}
 }
 
 export async function importBackup(file: File): Promise<{ receipts: number; items: number }> {
