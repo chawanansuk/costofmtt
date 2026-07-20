@@ -41,7 +41,7 @@ const SYSTEM_PROMPT = `คุณคือระบบอ่านข้อมู
 9. ตัวเลขเงิน: ตอบเป็น number ไม่มี comma, subtotal = มูลค่าก่อน VAT ตามที่พิมพ์ (หรือยอดรวมรายการถ้าไม่มี VAT), discount = ส่วนลดท้ายบิล (บาท ไม่ใช่ %), vat_amount = จำนวน VAT ตามที่พิมพ์, total = ยอดสุทธิที่ต้องชำระจริง
 10. ก่อนตอบ ตรวจทานความสอดคล้องของยอดเงิน โดยยอมรับได้หลายแบบ: ผลรวมรายการ ≈ subtotal, หรือ ผลรวมรายการ − discount ≈ total (กรณีราคารวม VAT), หรือ subtotal − discount + vat_amount ≈ total ถ้าไม่เข้าเคสไหนเลยให้อ่านซ้ำ และถ้ายังไม่ตรงให้ระบุใน warnings
 11. สถานะการจ่ายเงิน (paid): true ถ้ามีตราประทับ/ข้อความ "จ่ายเงินแล้ว/ชำระแล้ว/เงินสด(จ่ายแล้ว)", false ถ้าเป็นเครดิต/ระบุวันครบกำหนดและไม่มีหลักฐานว่าจ่ายแล้ว, null ถ้าไม่ทราบ และ due_date = วันครบกำหนดชำระ/กำหนดชำระ ถ้ามี
-12. จัดหมวดหมู่ต้นทุนให้แต่ละรายการ (category): "raw_material" = วัตถุดิบ/ส่วนผสมที่นำไปผลิต, "merchandise" = สินค้าสำเร็จรูปซื้อมาขายต่อ, "packaging" = บรรจุภัณฑ์ ถุง กล่อง, "supplies" = วัสดุสิ้นเปลือง ของใช้ในร้าน, "equipment" = อุปกรณ์/เครื่องมือ/เครื่องใช้, "shipping" = ค่าขนส่ง, "utilities" = ค่าน้ำ ไฟ เน็ต โทรศัพท์, "service_other" = ค่าบริการหรืออื่นๆ ถ้าไม่แน่ใจให้เป็น null
+12. จัดหมวดหมู่ต้นทุนให้แต่ละรายการ (category): "raw_material" = วัตถุดิบ/ส่วนผสมที่นำไปผลิต, "merchandise" = สินค้าสำเร็จรูปซื้อมาขายต่อ, "packaging" = บรรจุภัณฑ์ ถุง กล่อง, "supplies" = วัสดุสิ้นเปลือง ของใช้ในร้าน, "equipment" = อุปกรณ์/เครื่องมือ/เครื่องใช้, "shipping" = ค่าขนส่ง, "utilities" = ค่าน้ำ ไฟ เน็ต โทรศัพท์, "service_other" = ค่าบริการหรืออื่นๆ ถ้าไม่แน่ใจให้เลือก service_other
 13. confidence: "high" = ภาพชัด อ่านได้ครบ, "medium" = อ่านได้ส่วนใหญ่แต่บางจุดไม่แน่ใจ, "low" = ภาพมัว/ลายมืออ่านยาก/ไม่แน่ใจหลายจุด — บิลเขียนมือให้ไม่เกิน "medium" เสมอ
 14. warnings เขียนเป็นภาษาไทยสั้นๆ`;
 
@@ -105,10 +105,12 @@ const EXTRACT_TOOL: Anthropic.Tool = {
             unit_price: { type: ["number", "null"] },
             amount: { type: ["number", "null"] },
             category: {
-              type: ["string", "null"],
+              // strict schema ไม่รองรับ type แบบ array คู่กับ enum — ใช้ string เดี่ยว
+              // และให้ service_other เป็นตัวเลือก fallback แทน null
+              type: "string",
               enum: [
                 "raw_material", "merchandise", "packaging", "supplies",
-                "equipment", "shipping", "utilities", "service_other", null,
+                "equipment", "shipping", "utilities", "service_other",
               ],
             },
           },
