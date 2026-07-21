@@ -1,7 +1,57 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import type { ExtractedReceipt, ExtractResponse } from "@/lib/types";
+import type { ExtractedReceipt, ExtractResponse, Party, LineItem } from "@/lib/types";
 import { validateExtraction } from "@/lib/validate";
+
+// เติมโครงสร้างที่ขาดด้วยค่าปลอดภัย — กันแอปพังถ้าโมเดลไม่ส่งบางฟิลด์ (ไม่ strict แล้ว)
+const s = (v: unknown): string | null =>
+  typeof v === "string" && v.trim() !== "" ? v : null;
+const n = (v: unknown): number | null => (typeof v === "number" && !Number.isNaN(v) ? v : null);
+const party = (v: unknown): Party => {
+  const o = (v ?? {}) as Record<string, unknown>;
+  return { name: s(o.name), tax_id: s(o.tax_id), branch: s(o.branch), address: s(o.address) };
+};
+
+function normalizeExtracted(input: unknown): ExtractedReceipt {
+  const o = (input ?? {}) as Record<string, unknown>;
+  const items = Array.isArray(o.line_items) ? o.line_items : [];
+  const conf = o.confidence;
+  return {
+    document_type: (typeof o.document_type === "string"
+      ? o.document_type
+      : "other") as ExtractedReceipt["document_type"],
+    seller: party(o.seller),
+    buyer: party(o.buyer),
+    doc_number: s(o.doc_number),
+    doc_date: s(o.doc_date),
+    line_items: items.map((it): LineItem => {
+      const p = (it ?? {}) as Record<string, unknown>;
+      return {
+        description: typeof p.description === "string" ? p.description : "",
+        quantity: n(p.quantity),
+        unit: s(p.unit),
+        unit_price: n(p.unit_price),
+        amount: n(p.amount),
+        category: (typeof p.category === "string"
+          ? p.category
+          : null) as LineItem["category"],
+      };
+    }),
+    subtotal: n(o.subtotal),
+    discount: n(o.discount),
+    vat_rate: n(o.vat_rate),
+    vat_amount: n(o.vat_amount),
+    total: n(o.total),
+    payment_method: s(o.payment_method),
+    paid: typeof o.paid === "boolean" ? o.paid : null,
+    due_date: s(o.due_date),
+    notes: s(o.notes),
+    confidence: conf === "high" || conf === "low" ? conf : "medium",
+    warnings: Array.isArray(o.warnings)
+      ? o.warnings.filter((w): w is string => typeof w === "string")
+      : [],
+  };
+}
 
 export const maxDuration = 60;
 
@@ -49,7 +99,8 @@ const EXTRACT_TOOL: Anthropic.Tool = {
   name: "record_receipt",
   description:
     "บันทึกข้อมูลที่อ่านได้จากภาพใบกำกับภาษี/ใบเสร็จ เรียกครั้งเดียวด้วยข้อมูลครบทุกช่อง",
-  strict: true,
+  // ไม่ใช้ strict mode: schema มีฟิลด์ nullable เกินลิมิต 16 ช่องของ strict
+  // (compilation cost) — Opus 4.8 ทำตาม schema แม่นอยู่แล้ว + มี normalize/validate คุมอีกชั้น
   input_schema: {
     type: "object",
     additionalProperties: false,
@@ -216,7 +267,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const data = toolUse.input as ExtractedReceipt;
+    const data = normalizeExtracted(toolUse.input);
     const validation = validateExtraction(data);
 
     const result: ExtractResponse = {
