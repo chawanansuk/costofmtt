@@ -108,6 +108,42 @@ export default function ReceiptForm({
 
   const itemsSum = data.line_items.reduce((s, it) => s + (it.amount ?? 0), 0);
 
+  const round2 = (v: number) => Math.round(v * 100) / 100;
+
+  // เกลี่ยยอดจ่ายจริง (target) ลงทุกรายการตามสัดส่วน แล้วคำนวณราคา/หน่วยจริง
+  // ใช้เมื่อราคาที่พิมพ์ ≠ ยอดจ่ายจริง (ต่อรอง/ส่วนลดท้ายบิล) เพื่อให้ต้นทุนต่อหน่วยเป็นราคาจริง
+  const allocateNet = (target: number) => {
+    const items = data.line_items;
+    if (items.length === 0 || target <= 0) return;
+    // น้ำหนักการปัน: ตามยอดเงินที่มี > ตามจำนวน > เท่ากันทุกรายการ
+    const byAmount = items.map((it) => it.amount ?? 0);
+    let weights = byAmount;
+    if (byAmount.reduce((s, v) => s + v, 0) <= 0) {
+      const byQty = items.map((it) => it.quantity ?? 0);
+      weights =
+        byQty.reduce((s, v) => s + v, 0) > 0 ? byQty : items.map(() => 1);
+    }
+    const wsum = weights.reduce((s, v) => s + v, 0) || items.length;
+    const alloc = weights.map((w) => round2((target * w) / wsum));
+    // ยัดเศษปัดที่รายการสุดท้ายให้ผลรวมเท่ากับ target เป๊ะ
+    const remainder = round2(target - alloc.reduce((s, v) => s + v, 0));
+    alloc[alloc.length - 1] = round2(alloc[alloc.length - 1] + remainder);
+    set({
+      line_items: items.map((it, i) => ({
+        ...it,
+        amount: alloc[i],
+        unit_price:
+          it.quantity && it.quantity !== 0
+            ? round2(alloc[i] / it.quantity)
+            : alloc[i],
+      })),
+    });
+  };
+
+  // แสดงปุ่มเกลี่ยเมื่อมียอดสุทธิ และผลรวมรายการไม่ตรงกับยอดสุทธิ (ต่างเกิน 1 บาท)
+  const canAllocate =
+    data.total != null && data.total > 0 && Math.abs(itemsSum - data.total) > 1;
+
   return (
     <div className="stack">
       {data.warnings.length > 0 && (
@@ -412,6 +448,25 @@ export default function ReceiptForm({
             <span style={{ color: "var(--warn)" }}> — ไม่ตรงกับยอดก่อน VAT ด้านล่าง</span>
           )}
         </p>
+        {canAllocate && (
+          <div className="alert alert-warn mt-2">
+            <div className="small" style={{ marginBottom: 8 }}>
+              💡 ยอดจ่ายจริง ({baht(data.total)} บาท) ต่างจากราคาที่พิมพ์ในรายการ
+              ({baht(itemsSum)} บาท) — กดปุ่มนี้เพื่อคิด <strong>ต้นทุนต่อหน่วยจากยอดจ่ายจริง</strong>
+              {data.line_items.length === 1 && data.line_items[0].quantity
+                ? ` (${baht(data.total)} ÷ ${data.line_items[0].quantity} = ${baht(
+                    round2(data.total! / data.line_items[0].quantity!)
+                  )}/หน่วย)`
+                : " (เกลี่ยตามสัดส่วนให้ทุกรายการ)"}
+            </div>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => allocateNet(data.total!)}
+            >
+              เกลี่ยยอดจ่ายจริงลงรายการ
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="card">
