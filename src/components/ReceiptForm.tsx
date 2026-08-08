@@ -140,9 +140,14 @@ export default function ReceiptForm({
     });
   };
 
-  // แสดงปุ่มเกลี่ยเมื่อมียอดสุทธิ และผลรวมรายการไม่ตรงกับยอดสุทธิ (ต่างเกิน 1 บาท)
+  // แสดงปุ่มเกลี่ยเฉพาะเมื่อยอดรวมรายการ "อธิบายไม่ได้" ด้วยสมการเงินปกติ
+  // (itemsSumOk === false) — ใบกำกับภาษีที่ต่างเพราะ VAT/ส่วนลดที่ถูกต้องอยู่แล้ว
+  // ห้ามขึ้นปุ่ม ไม่งั้นผู้ใช้เผลอกดแล้วต้นทุนเพี้ยน
   const canAllocate =
-    data.total != null && data.total > 0 && Math.abs(itemsSum - data.total) > 1;
+    data.total != null &&
+    data.total > 0 &&
+    validation.itemsSumOk === false &&
+    Math.abs(itemsSum - data.total) > 1;
 
   return (
     <div className="stack">

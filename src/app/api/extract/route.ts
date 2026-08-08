@@ -11,6 +11,10 @@ const party = (v: unknown): Party => {
   const o = (v ?? {}) as Record<string, unknown>;
   return { name: s(o.name), tax_id: s(o.tax_id), branch: s(o.branch), address: s(o.address) };
 };
+const CATEGORIES = new Set([
+  "raw_material", "merchandise", "packaging", "supplies",
+  "equipment", "shipping", "utilities", "service_other",
+]);
 
 function normalizeExtracted(input: unknown): ExtractedReceipt {
   const o = (input ?? {}) as Record<string, unknown>;
@@ -32,7 +36,8 @@ function normalizeExtracted(input: unknown): ExtractedReceipt {
         unit: s(p.unit),
         unit_price: n(p.unit_price),
         amount: n(p.amount),
-        category: (typeof p.category === "string"
+        // รับเฉพาะหมวดที่อยู่ในลิสต์ 8 หมวด — ค่าอื่นตัดเป็น null
+        category: (typeof p.category === "string" && CATEGORIES.has(p.category)
           ? p.category
           : null) as LineItem["category"],
       };
@@ -61,8 +66,10 @@ const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"] as 
 const MAX_BASE64_LENGTH = 11_000_000;
 
 // กันยิงถล่ม: จำกัดต่อ IP ต่อนาที (in-memory ต่อ instance — ชั้นแรกพอสำหรับแอปส่วนตัว)
+// 20/นาที เผื่อพนักงานหลายคนสแกนพร้อมกันหลัง WiFi ร้านเดียวกัน (IP เดียวกัน)
+// — การสแกน 1 ใบใช้เวลา 10–30 วิ จึงยังกันบอทยิงรัวได้อยู่
 const RATE_WINDOW_MS = 60_000;
-const RATE_MAX_REQUESTS = 8;
+const RATE_MAX_REQUESTS = 20;
 const rateHits = new Map<string, number[]>();
 
 function isRateLimited(ip: string): boolean {
