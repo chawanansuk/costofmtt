@@ -5,6 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import type { ExtractedReceipt, LineItem, CostCategory } from "@/lib/types";
 import { validateExtraction, normalizeItemName } from "@/lib/validate";
+import { billDiscountFactor } from "@/lib/cost";
 import { baht, thaiDate, DOC_TYPE_LABEL, CATEGORY_LABEL, TEMP_DOC_TYPES } from "@/lib/format";
 
 interface Props {
@@ -53,10 +54,13 @@ export default function ReceiptForm({
       pct: number;
       prevDate: string | null;
     }[] = [];
+    // เทียบด้วยต้นทุนหลังหักส่วนลดท้ายบิล เพื่อให้เทียบกับราคาที่เก็บไว้แบบเดียวกัน
+    const factor = billDiscountFactor(data);
     for (const it of data.line_items) {
       const qty = it.quantity ?? 1;
-      const now =
+      const raw =
         it.amount != null && qty > 0 ? it.amount / qty : it.unit_price;
+      const now = raw == null ? null : raw * factor;
       if (now == null || now <= 0) continue;
       const key = normalizeItemName(it.description);
       if (!key) continue;
@@ -109,6 +113,7 @@ export default function ReceiptForm({
   const itemsSum = data.line_items.reduce((s, it) => s + (it.amount ?? 0), 0);
 
   const round2 = (v: number) => Math.round(v * 100) / 100;
+  const discountFactor = billDiscountFactor(data);
 
   // เกลี่ยยอดจ่ายจริง (target) ลงทุกรายการตามสัดส่วน แล้วคำนวณราคา/หน่วยจริง
   // ใช้เมื่อราคาที่พิมพ์ ≠ ยอดจ่ายจริง (ต่อรอง/ส่วนลดท้ายบิล) เพื่อให้ต้นทุนต่อหน่วยเป็นราคาจริง
@@ -453,6 +458,24 @@ export default function ReceiptForm({
             <span style={{ color: "var(--warn)" }}> — ไม่ตรงกับยอดก่อน VAT ด้านล่าง</span>
           )}
         </p>
+        {discountFactor < 1 && (
+          <div className="alert alert-ok mt-2 small">
+            ✓ ต้นทุนที่บันทึกจะ<strong>หักส่วนลดท้ายบิล
+            {" "}{((1 - discountFactor) * 100).toFixed(2).replace(/\.?0+$/, "")}%</strong> ให้อัตโนมัติ
+            {data.line_items[0]?.quantity && data.line_items[0]?.amount != null && (
+              <>
+                {" "}(เช่น {baht(data.line_items[0].amount / data.line_items[0].quantity)} →{" "}
+                {baht(
+                  round2(
+                    (data.line_items[0].amount * discountFactor) /
+                      data.line_items[0].quantity
+                  )
+                )}{" "}
+                บาท/{data.line_items[0].unit ?? "หน่วย"})
+              </>
+            )}
+          </div>
+        )}
         {canAllocate && (
           <div className="alert alert-warn mt-2">
             <div className="small" style={{ marginBottom: 8 }}>
