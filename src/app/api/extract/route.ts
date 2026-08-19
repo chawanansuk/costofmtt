@@ -239,7 +239,7 @@ export async function POST(req: NextRequest) {
   try {
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 8000,
+      max_tokens: 16000,
       system: SYSTEM_PROMPT,
       tools: [EXTRACT_TOOL],
       tool_choice: { type: "tool", name: "record_receipt" },
@@ -275,6 +275,13 @@ export async function POST(req: NextRequest) {
     }
 
     const data = normalizeExtracted(toolUse.input);
+    // ใบที่มีรายการเยอะมากอาจถูกตัดกลางคัน — เตือนให้ผู้ใช้ตรวจว่ารายการครบ
+    if (response.stop_reason === "max_tokens") {
+      data.warnings.push(
+        "เอกสารมีรายการเยอะมาก ข้อมูลอาจถูกตัดไม่ครบ กรุณาตรวจสอบรายการสินค้าให้ครบถ้วน"
+      );
+      data.confidence = "low";
+    }
     const validation = validateExtraction(data);
 
     const result: ExtractResponse = {
