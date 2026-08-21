@@ -142,6 +142,16 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          <Link href="/ask" className="list-item mt-4" style={{ borderColor: "var(--primary)" }}>
+            <div>
+              <div className="title">🤖 ถาม AI เกี่ยวกับต้นทุน</div>
+              <div className="meta">
+                เช่น &quot;เดือนนี้อะไรแพงขึ้นบ้าง&quot; · &quot;ควรต่อรองเจ้าไหน&quot;
+              </div>
+            </div>
+            <div style={{ color: "var(--primary)", fontWeight: 700 }}>→</div>
+          </Link>
+
           {stats && stats.unpaid.length > 0 && (
             <div className="card mt-4" style={{ borderColor: "var(--danger)" }}>
               <div className="row spread">

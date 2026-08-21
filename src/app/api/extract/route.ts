@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { ExtractedReceipt, ExtractResponse, Party, LineItem } from "@/lib/types";
 import { validateExtraction } from "@/lib/validate";
+import { guardRequest, anthropicErrorResponse } from "@/lib/apiguard";
 
 // เติมโครงสร้างที่ขาดด้วยค่าปลอดภัย — กันแอปพังถ้าโมเดลไม่ส่งบางฟิลด์ (ไม่ strict แล้ว)
 const s = (v: unknown): string | null =>
@@ -64,26 +65,6 @@ const MODEL = process.env.EXTRACT_MODEL || "claude-opus-4-8";
 const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 // จำกัด payload ~8MB (base64 พองขึ้น ~33% จากไฟล์จริง)
 const MAX_BASE64_LENGTH = 11_000_000;
-
-// กันยิงถล่ม: จำกัดต่อ IP ต่อนาที (in-memory ต่อ instance — ชั้นแรกพอสำหรับแอปส่วนตัว)
-// 20/นาที เผื่อพนักงานหลายคนสแกนพร้อมกันหลัง WiFi ร้านเดียวกัน (IP เดียวกัน)
-// — การสแกน 1 ใบใช้เวลา 10–30 วิ จึงยังกันบอทยิงรัวได้อยู่
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX_REQUESTS = 20;
-const rateHits = new Map<string, number[]>();
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  if (rateHits.size > 2000) rateHits.clear(); // กัน map โตไม่จำกัด
-  const recent = (rateHits.get(ip) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
-  if (recent.length >= RATE_MAX_REQUESTS) {
-    rateHits.set(ip, recent);
-    return true;
-  }
-  recent.push(now);
-  rateHits.set(ip, recent);
-  return false;
-}
 
 const SYSTEM_PROMPT = `คุณคือระบบอ่านข้อมูลจากภาพเอกสารการค้าของไทย (ใบกำกับภาษี ใบเสร็จ ใบส่งของ ใบเสนอขาย บิลเขียนมือ ฯลฯ) ให้สกัดข้อมูลอย่างแม่นยำที่สุดตามกติกาต่อไปนี้:
 
@@ -190,30 +171,8 @@ const EXTRACT_TOOL: Anthropic.Tool = {
 };
 
 export async function POST(req: NextRequest) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json(
-      { error: "เซิร์ฟเวอร์ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY" },
-      { status: 500 }
-    );
-  }
-
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  if (isRateLimited(ip)) {
-    return NextResponse.json(
-      { error: "ส่งรูปถี่เกินไป กรุณารอ 1 นาทีแล้วลองใหม่" },
-      { status: 429 }
-    );
-  }
-
-  // ถ้าตั้ง APP_PASSCODE ไว้ ต้องส่งรหัสมาด้วยทุกครั้ง (ตั้งรหัสได้ในหน้าตั้งค่า)
-  const passcode = process.env.APP_PASSCODE;
-  if (passcode && req.headers.get("x-app-passcode") !== passcode) {
-    return NextResponse.json(
-      { error: "ต้องใส่รหัสผ่านแอปให้ถูกต้องก่อนใช้งาน — ตั้งได้ที่หน้า ตั้งค่า" },
-      { status: 401 }
-    );
-  }
+  const denied = guardRequest(req);
+  if (denied) return denied;
 
   let body: { image?: string; mediaType?: string; buyerHint?: string };
   try {
@@ -294,29 +253,6 @@ export async function POST(req: NextRequest) {
     };
     return NextResponse.json(result);
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) {
-      return NextResponse.json({ error: "API key ไม่ถูกต้อง" }, { status: 500 });
-    }
-    if (err instanceof Anthropic.RateLimitError) {
-      return NextResponse.json(
-        { error: "ใช้งานถี่เกินไป กรุณารอสักครู่แล้วลองใหม่" },
-        { status: 429 }
-      );
-    }
-    if (err instanceof Anthropic.APIConnectionError) {
-      return NextResponse.json(
-        { error: "เชื่อมต่อบริการ AI ไม่ได้ กรุณาลองใหม่" },
-        { status: 502 }
-      );
-    }
-    if (err instanceof Anthropic.APIError) {
-      console.error("Anthropic API error:", err.status, err.message);
-      return NextResponse.json(
-        { error: "บริการ AI ขัดข้อง กรุณาลองใหม่" },
-        { status: 502 }
-      );
-    }
-    console.error("extract error:", err);
-    return NextResponse.json({ error: "เกิดข้อผิดพลาดภายใน" }, { status: 500 });
+    return anthropicErrorResponse(err, Anthropic);
   }
 }

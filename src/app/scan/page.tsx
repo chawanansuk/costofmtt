@@ -6,6 +6,7 @@ import { compressImage, type CompressedImage } from "@/lib/image";
 import type { ExtractResponse, ExtractedReceipt } from "@/lib/types";
 import { findDuplicate, findRelated } from "@/lib/db";
 import { addReceipt } from "@/lib/save";
+import { recordUsage } from "@/lib/usage";
 import { DOC_TYPE_LABEL, thaiDate } from "@/lib/format";
 import ReceiptForm from "@/components/ReceiptForm";
 
@@ -70,8 +71,9 @@ export default function ScanPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "อ่านข้อมูลไม่สำเร็จ");
 
-      const { data } = json as ExtractResponse;
+      const { data, usage } = json as ExtractResponse;
       setExtracted(data);
+      await recordUsage("extract", usage);
 
       const dup = await findDuplicate(data.seller.tax_id, data.doc_number);
       if (dup) {

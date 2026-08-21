@@ -1,10 +1,11 @@
 import Dexie, { type EntityTable } from "dexie";
-import type { ReceiptRecord, ItemRecord } from "./types";
+import type { ReceiptRecord, ItemRecord, UsageRecord } from "./types";
 
 // ข้อมูลทั้งหมดอยู่ใน IndexedDB บนเครื่องผู้ใช้ (offline-first)
 export const db = new Dexie("costsnap") as Dexie & {
   receipts: EntityTable<ReceiptRecord, "id">;
   items: EntityTable<ItemRecord, "id">;
+  usage: EntityTable<UsageRecord, "id">;
 };
 
 db.version(1).stores({
@@ -23,6 +24,14 @@ db.version(3).stores({
   receipts:
     "++id, createdAt, docDate, sellerName, sellerTaxId, docNumber, documentType, dueDate",
   items: "++id, receiptId, normalizedName, docDate, category",
+});
+
+// v4: เก็บการใช้งาน AI เพื่อคิดค่าใช้จ่าย
+db.version(4).stores({
+  receipts:
+    "++id, createdAt, docDate, sellerName, sellerTaxId, docNumber, documentType, dueDate",
+  items: "++id, receiptId, normalizedName, docDate, category",
+  usage: "++id, at, kind",
 });
 
 // ตรวจใบซ้ำ: ผู้ขายเดียวกัน + เลขที่เอกสารเดียวกัน

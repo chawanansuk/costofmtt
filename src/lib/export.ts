@@ -159,8 +159,9 @@ export async function importBackup(file: File): Promise<{ receipts: number; item
 }
 
 export async function clearAllData() {
-  await db.transaction("rw", db.receipts, db.items, async () => {
+  await db.transaction("rw", db.receipts, db.items, db.usage, async () => {
     await db.items.clear();
     await db.receipts.clear();
+    await db.usage.clear();
   });
 }

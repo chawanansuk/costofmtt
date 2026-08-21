@@ -116,3 +116,13 @@ export interface ItemRecord {
   amount: number;
   category: CostCategory | null;
 }
+
+// บันทึกการใช้งาน AI ต่อครั้ง — ใช้คิดค่าใช้จ่ายที่เกิดขึ้นจริง
+export interface UsageRecord {
+  id?: number;
+  at: number; // epoch ms
+  kind: "extract" | "ask"; // สแกนใบ / ถาม AI
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+}

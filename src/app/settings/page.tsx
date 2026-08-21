@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
+import { summarizeUsage, PRICE_USD_PER_MTOK, USD_TO_THB } from "@/lib/usage";
+import { baht } from "@/lib/format";
 import {
   exportReceiptsCsv,
   exportItemsCsv,
@@ -21,6 +23,9 @@ export default function SettingsPage() {
     receipts: await db.receipts.count(),
     items: await db.items.count(),
   }), []);
+
+  const usageRecords = useLiveQuery(() => db.usage.toArray(), []);
+  const ai = usageRecords ? summarizeUsage(usageRecords) : null;
 
   const [passcode, setPasscode] = useState("");
   const [myShop, setMyShop] = useState("");
@@ -134,6 +139,48 @@ export default function SettingsPage() {
             บันทึก
           </button>
         </div>
+      </div>
+
+      <div className="card mt-3">
+        <div className="card-title">ค่าใช้จ่าย AI</div>
+        {usageRecords && usageRecords.length === 0 ? (
+          <p className="muted small">
+            ยังไม่มีการใช้งาน AI บนเครื่องนี้ — ตัวเลขจะขึ้นหลังสแกนใบแรก
+          </p>
+        ) : (
+          <>
+            <div className="stat-grid">
+              <div className="stat">
+                <div className="label">ค่า AI เดือนนี้</div>
+                <div className="value">{ai ? baht(ai.monthCostTHB) : "…"}</div>
+                <div className="hint">บาท (โดยประมาณ)</div>
+              </div>
+              <div className="stat">
+                <div className="label">ใช้งานเดือนนี้</div>
+                <div className="value">{ai ? ai.monthScans : "…"}</div>
+                <div className="hint">
+                  ใบที่สแกน{ai && ai.monthAsks > 0 ? ` · ถาม AI ${ai.monthAsks} ครั้ง` : ""}
+                </div>
+              </div>
+              <div className="stat">
+                <div className="label">เฉลี่ยต่อใบ</div>
+                <div className="value">{ai ? baht(ai.avgPerScanTHB) : "…"}</div>
+                <div className="hint">บาท/ใบ</div>
+              </div>
+              <div className="stat">
+                <div className="label">รวมทั้งหมด</div>
+                <div className="value">{ai ? baht(ai.totalCostTHB) : "…"}</div>
+                <div className="hint">บาท · {ai?.totalScans ?? 0} ใบ</div>
+              </div>
+            </div>
+            <p className="muted small mt-3">
+              ประมาณการจากจำนวน token ที่ใช้จริง คูณราคาโมเดล (input{" "}
+              {PRICE_USD_PER_MTOK.input}$ / output {PRICE_USD_PER_MTOK.output}$ ต่อล้าน token)
+              ที่อัตรา {USD_TO_THB} บาท/ดอลลาร์ — ใช้ดูแนวโน้ม ไม่ใช่ยอดเรียกเก็บจริง
+              และนับเฉพาะการใช้งานบนเครื่องนี้
+            </p>
+          </>
+        )}
       </div>
 
       <div className="card mt-3">
