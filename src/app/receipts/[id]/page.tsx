@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, deleteReceipt } from "@/lib/db";
 import { updateReceipt } from "@/lib/save";
+import { billSummary } from "@/lib/cost";
 import type { ExtractedReceipt } from "@/lib/types";
 import { baht, thaiDate, DOC_TYPE_LABEL, CATEGORY_LABEL } from "@/lib/format";
 import ReceiptForm from "@/components/ReceiptForm";
@@ -24,6 +25,15 @@ export default function ReceiptDetailPage({
     () => db.items.where("receiptId").equals(receiptId).toArray(),
     [receiptId]
   );
+
+  // ยอดสรุปที่ไล่ย้อนจากยอดสุทธิ+VAT เสมอ จึงกระทบยอดกันได้ทุกใบ
+  const money = billSummary({
+    subtotal: receipt?.subtotal ?? null,
+    discount: receipt?.discount ?? null,
+    vatAmount: receipt?.vatAmount ?? null,
+    total: receipt?.total ?? null,
+    itemsSum: 0,
+  });
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -227,15 +237,18 @@ export default function ReceiptDetailPage({
         <div className="card-title">ยอดเงิน</div>
         <table className="data">
           <tbody>
-            <tr><td className="muted">ยอดก่อน VAT</td><td className="num">{baht(receipt.subtotal)} ฿</td></tr>
-            {receipt.discount > 0 && (
-              <tr><td className="muted">ส่วนลด</td><td className="num">-{baht(receipt.discount)} ฿</td></tr>
+            {money.discount > 0 && (
+              <>
+                <tr><td className="muted">ราคาสินค้า (ก่อนลด)</td><td className="num">{baht(money.gross)} ฿</td></tr>
+                <tr><td className="muted">ส่วนลดท้ายบิล</td><td className="num">-{baht(money.discount)} ฿</td></tr>
+              </>
             )}
-            <tr><td className="muted">VAT</td><td className="num">{baht(receipt.vatAmount)} ฿</td></tr>
+            <tr><td className="muted">ยอดก่อน VAT</td><td className="num">{baht(money.netBeforeVat)} ฿</td></tr>
+            <tr><td className="muted">VAT</td><td className="num">{baht(money.vat)} ฿</td></tr>
             <tr>
               <td style={{ fontWeight: 700 }}>ยอดสุทธิ</td>
               <td className="num" style={{ fontWeight: 700, fontSize: "1.05rem" }}>
-                {baht(receipt.total)} ฿
+                {baht(money.total)} ฿
               </td>
             </tr>
           </tbody>

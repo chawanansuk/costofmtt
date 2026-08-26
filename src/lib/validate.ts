@@ -13,6 +13,8 @@ export function isValidThaiTaxId(raw: string | null | undefined): boolean {
   return check === Number(digits[12]);
 }
 
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
 const closeTo = (a: number, b: number, tol = 1.0) => Math.abs(a - b) <= tol;
 
 // ตรวจความสมเหตุสมผลของตัวเลขและความครบถ้วนตามมาตรา 86/4
@@ -26,34 +28,36 @@ export function validateExtraction(data: ExtractedReceipt): ValidationResult {
     .filter((a): a is number => a != null);
   const itemsSum = amounts.reduce((s, a) => s + a, 0);
 
-  const base =
-    data.subtotal != null ? data.subtotal - (data.discount ?? 0) : null;
-
   const discount = data.discount ?? 0;
+  const vat = data.vat_amount ?? 0;
+
+  // ฐานก่อน VAT ที่เชื่อถือได้ที่สุด = ยอดสุทธิ − VAT (ใช้ได้ทั้ง VAT นอกและ VAT ใน)
+  // ไม่อิง subtotal เพราะบิลไทยพิมพ์ "รวมราคาสินค้า" เป็นยอดหลังหักส่วนลดบ้าง ก่อนหักบ้าง
+  const netBeforeVat =
+    data.total != null
+      ? round2(data.total - vat)
+      : data.subtotal != null
+        ? round2(data.subtotal - discount)
+        : null;
+  const gross = netBeforeVat != null ? round2(netBeforeVat + discount) : null;
+
   const itemsSumOk =
-    amounts.length > 0 && (data.subtotal != null || data.total != null)
-      ? (data.subtotal != null && closeTo(itemsSum, data.subtotal)) ||
-        (data.total != null && closeTo(itemsSum, data.total)) ||
-        // กรณีราคารวม VAT + ส่วนลดท้ายบิล: รวมรายการ − ส่วนลด = ยอดสุทธิ
-        (data.total != null && closeTo(itemsSum - discount, data.total)) ||
-        (data.subtotal != null && closeTo(itemsSum - discount, data.subtotal))
+    amounts.length > 0 && gross != null && netBeforeVat != null
+      ? closeTo(itemsSum, gross, Math.max(1, gross * 0.001)) ||
+        closeTo(itemsSum, netBeforeVat, Math.max(1, netBeforeVat * 0.001))
       : null;
 
+  // subtotal ที่พิมพ์ต้องเข้ากับรูปแบบใดรูปแบบหนึ่งที่ยอมรับได้
   const totalMathOk =
-    base != null && data.vat_amount != null && data.total != null
-      ? closeTo(base + data.vat_amount, data.total) ||
-        // กรณีมูลค่าสินค้า+VAT = ยอดสุทธิ โดยส่วนลดถูกหักก่อนถอด VAT แล้ว
-        closeTo(data.subtotal! + data.vat_amount, data.total) ||
-        // กรณีราคารวม VAT แล้ว (VAT-included): total = subtotal - discount
-        closeTo(base, data.total)
+    data.subtotal != null && data.total != null
+      ? closeTo(data.subtotal - discount + vat, data.total) ||
+        closeTo(data.subtotal + vat, data.total) ||
+        closeTo(data.subtotal, data.total)
       : null;
 
   const vatMathOk =
-    base != null && data.vat_amount != null && data.vat_amount > 0
-      ? closeTo(base * 0.07, data.vat_amount, Math.max(1, base * 0.002)) ||
-        // กรณี VAT-included: vat = total * 7/107
-        (data.total != null &&
-          closeTo((data.total * 7) / 107, data.vat_amount, Math.max(1, data.total * 0.002)))
+    netBeforeVat != null && vat > 0
+      ? closeTo(netBeforeVat * 0.07, vat, Math.max(1, netBeforeVat * 0.002))
       : null;
 
   // ความครบถ้วนของใบกำกับภาษีเต็มรูปตามมาตรา 86/4

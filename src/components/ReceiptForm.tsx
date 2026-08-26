@@ -5,7 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import type { ExtractedReceipt, LineItem, CostCategory } from "@/lib/types";
 import { validateExtraction, normalizeItemName } from "@/lib/validate";
-import { billDiscountFactor } from "@/lib/cost";
+import { billDiscountFactor, summarizeExtracted, round2 } from "@/lib/cost";
 import { baht, thaiDate, DOC_TYPE_LABEL, CATEGORY_LABEL, TEMP_DOC_TYPES } from "@/lib/format";
 
 interface Props {
@@ -112,8 +112,8 @@ export default function ReceiptForm({
 
   const itemsSum = data.line_items.reduce((s, it) => s + (it.amount ?? 0), 0);
 
-  const round2 = (v: number) => Math.round(v * 100) / 100;
   const discountFactor = billDiscountFactor(data);
+  const money = summarizeExtracted(data);
 
   // เกลี่ยยอดจ่ายจริง (target) ลงทุกรายการตามสัดส่วน แล้วคำนวณราคา/หน่วยจริง
   // ใช้เมื่อราคาที่พิมพ์ ≠ ยอดจ่ายจริง (ต่อรอง/ส่วนลดท้ายบิล) เพื่อให้ต้นทุนต่อหน่วยเป็นราคาจริง
@@ -455,7 +455,7 @@ export default function ReceiptForm({
         <p className="muted small mt-2">
           รวมรายการ: {baht(itemsSum)} บาท
           {validation.itemsSumOk === false && (
-            <span style={{ color: "var(--warn)" }}> — ไม่ตรงกับยอดก่อน VAT ด้านล่าง</span>
+            <span style={{ color: "var(--warn)" }}> — ไม่ตรงกับยอดเงินด้านล่าง</span>
           )}
         </p>
         {discountFactor < 1 && (
@@ -536,6 +536,42 @@ export default function ReceiptForm({
               onChange={(e) => set({ total: numOrNull(e.target.value) })}
             />
           </div>
+          <div className="field full">
+            <div className="alert alert-ok small" style={{ marginBottom: 0 }}>
+              <strong>ยอดที่จะบันทึก</strong>
+              <table className="data" style={{ marginTop: 6 }}>
+                <tbody>
+                  {money.discount > 0 && (
+                    <>
+                      <tr>
+                        <td>ราคาสินค้า (ก่อนลด)</td>
+                        <td className="num">{baht(money.gross)}</td>
+                      </tr>
+                      <tr>
+                        <td>ส่วนลดท้ายบิล</td>
+                        <td className="num">-{baht(money.discount)}</td>
+                      </tr>
+                    </>
+                  )}
+                  <tr>
+                    <td>ยอดก่อน VAT</td>
+                    <td className="num">{baht(money.netBeforeVat)}</td>
+                  </tr>
+                  <tr>
+                    <td>VAT</td>
+                    <td className="num">{baht(money.vat)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontWeight: 700 }}>ยอดสุทธิ</td>
+                    <td className="num" style={{ fontWeight: 700 }}>
+                      {baht(money.total)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div className="field full">
             <label>หมายเหตุ</label>
             <input
