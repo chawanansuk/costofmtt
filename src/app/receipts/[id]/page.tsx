@@ -93,14 +93,29 @@ export default function ReceiptDetailPage({
       },
       doc_number: receipt.docNumber,
       doc_date: receipt.docDate,
-      line_items: items.map((it) => ({
-        description: it.description,
-        quantity: it.quantity,
-        unit: it.unit,
-        unit_price: it.unitPrice,
-        amount: it.amount,
-        category: it.category ?? null,
-      })),
+      // แตกของแถมกลับเป็นบรรทัดของตัวเอง เพื่อให้บันทึกซ้ำได้ต้นทุนเท่าเดิม
+      line_items: items.flatMap((it) => [
+        {
+          description: it.description,
+          quantity: it.quantity,
+          unit: it.unit,
+          unit_price: it.quantity > 0 ? it.amount / it.quantity : it.unitPrice,
+          amount: it.amount,
+          category: it.category ?? null,
+        },
+        ...(it.freeQuantity
+          ? [
+              {
+                description: `${it.description} (แถม)`,
+                quantity: it.freeQuantity,
+                unit: it.unit,
+                unit_price: 0,
+                amount: 0,
+                category: it.category ?? null,
+              },
+            ]
+          : []),
+      ]),
       subtotal: receipt.subtotal,
       discount: receipt.discount || null,
       vat_rate: receipt.vatAmount > 0 ? 7 : null,
@@ -222,6 +237,14 @@ export default function ReceiptDetailPage({
                     </td>
                     <td className="num">
                       {it.quantity} {it.unit ?? ""}
+                      {it.freeQuantity ? (
+                        <div className="small" style={{ color: "var(--ok)" }}>
+                          + แถม {it.freeQuantity} {it.unit ?? ""}
+                        </div>
+                      ) : null}
+                      {it.isFreebie && (
+                        <div className="small" style={{ color: "var(--ok)" }}>ของแถม</div>
+                      )}
                     </td>
                     <td className="num">{baht(it.unitPrice)}</td>
                     <td className="num">{baht(it.amount)}</td>

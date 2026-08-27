@@ -5,7 +5,13 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import type { ExtractedReceipt, LineItem, CostCategory } from "@/lib/types";
 import { validateExtraction, normalizeItemName } from "@/lib/validate";
-import { billDiscountFactor, summarizeExtracted, round2 } from "@/lib/cost";
+import {
+  billDiscountFactor,
+  summarizeExtracted,
+  mergeFreebies,
+  lineAmount,
+  round2,
+} from "@/lib/cost";
 import { baht, thaiDate, DOC_TYPE_LABEL, CATEGORY_LABEL, TEMP_DOC_TYPES } from "@/lib/format";
 
 interface Props {
@@ -56,10 +62,12 @@ export default function ReceiptForm({
     }[] = [];
     // เทียบด้วยต้นทุนหลังหักส่วนลดท้ายบิล เพื่อให้เทียบกับราคาที่เก็บไว้แบบเดียวกัน
     const factor = billDiscountFactor(data);
-    for (const it of data.line_items) {
-      const qty = it.quantity ?? 1;
-      const raw =
-        it.amount != null && qty > 0 ? it.amount / qty : it.unit_price;
+    const { merged } = mergeFreebies(data.line_items);
+    for (let idx = 0; idx < data.line_items.length; idx++) {
+      const it = data.line_items[idx];
+      // ของแถมนับรวมในจำนวนที่ได้รับ ไม่งั้นจะเตือนว่าราคาขึ้นทั้งที่ถูกลง
+      const qty = (it.quantity ?? 1) + (merged.get(idx)?.freeQuantity ?? 0);
+      const raw = qty > 0 ? lineAmount(it) / qty : it.unit_price;
       const now = raw == null ? null : raw * factor;
       if (now == null || now <= 0) continue;
       const key = normalizeItemName(it.description);
@@ -114,6 +122,27 @@ export default function ReceiptForm({
 
   const discountFactor = billDiscountFactor(data);
   const money = summarizeExtracted(data);
+
+  // ของแถมที่ถูกยุบเข้ากับบรรทัดที่จ่ายเงิน — โชว์ให้เห็นว่าต้นทุนถูกหารใหม่แล้ว
+  const { merged: freebieMap, standalone: standaloneIdx } = mergeFreebies(
+    data.line_items
+  );
+  const freebieNotes = [...freebieMap.values()].map((m) => {
+    const it = data.line_items[m.index];
+    const qty = it.quantity ?? 1;
+    const amount = lineAmount(it) * discountFactor;
+    return {
+      name: it.description,
+      unit: it.unit,
+      qty,
+      free: m.freeQuantity,
+      cost: round2(amount / (qty + m.freeQuantity)),
+      listCost: round2(amount / qty),
+    };
+  });
+  const standaloneFreebies = standaloneIdx.map(
+    (i) => `${data.line_items[i].description} ${data.line_items[i].quantity ?? 0} ${data.line_items[i].unit ?? ""}`
+  );
 
   // เกลี่ยยอดจ่ายจริง (target) ลงทุกรายการตามสัดส่วน แล้วคำนวณราคา/หน่วยจริง
   // ใช้เมื่อราคาที่พิมพ์ ≠ ยอดจ่ายจริง (ต่อรอง/ส่วนลดท้ายบิล) เพื่อให้ต้นทุนต่อหน่วยเป็นราคาจริง
@@ -458,6 +487,26 @@ export default function ReceiptForm({
             <span style={{ color: "var(--warn)" }}> — ไม่ตรงกับยอดเงินด้านล่าง</span>
           )}
         </p>
+        {freebieNotes.length > 0 && (
+          <div className="alert alert-ok mt-2 small">
+            🎁 <strong>รวมของแถมเข้าต้นทุนให้แล้ว</strong>
+            <ul style={{ marginLeft: 18, marginTop: 4 }}>
+              {freebieNotes.map((f) => (
+                <li key={f.name}>
+                  {f.name} — ซื้อ {f.qty} + แถม {f.free} {f.unit ?? "หน่วย"} ={" "}
+                  {f.qty + f.free} {f.unit ?? "หน่วย"} → <strong>{baht(f.cost)} บาท/{f.unit ?? "หน่วย"}</strong>{" "}
+                  (จากราคาป้าย {baht(f.listCost)})
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {standaloneFreebies.length > 0 && (
+          <div className="alert alert-ok mt-2 small">
+            🎁 ของแถมที่ไม่มีรายการซื้อคู่กันในใบนี้ บันทึกต้นทุน 0 บาท:{" "}
+            {standaloneFreebies.join(", ")}
+          </div>
+        )}
         {discountFactor < 1 && (
           <div className="alert alert-ok mt-2 small">
             ✓ ต้นทุนที่บันทึกจะ<strong>หักส่วนลดท้ายบิล

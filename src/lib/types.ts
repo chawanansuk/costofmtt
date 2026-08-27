@@ -110,9 +110,11 @@ export interface ItemRecord {
   sellerName: string | null;
   description: string;
   normalizedName: string; // สำหรับ group ต้นทุนต่อสินค้า
-  quantity: number;
+  quantity: number; // จำนวนที่จ่ายเงินซื้อ
+  freeQuantity?: number; // ของแถมที่ได้มาพร้อมบรรทัดนี้ (รวมในการหารต้นทุนแล้ว)
+  isFreebie?: boolean; // บรรทัดของแถมล้วน ที่ไม่มีบรรทัดจ่ายเงินคู่กันในใบเดียวกัน
   unit: string | null;
-  unitPrice: number;
+  unitPrice: number; // ต้นทุนจริงต่อหน่วย = amount ÷ (quantity + freeQuantity)
   amount: number;
   category: CostCategory | null;
 }

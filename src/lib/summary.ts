@@ -79,6 +79,7 @@ export async function buildShopSummary(): Promise<{
   >();
   for (const it of items) {
     if (!it.normalizedName) continue;
+    const qty = it.quantity + (it.freeQuantity ?? 0); // ของแถมนับเป็นของที่ได้รับ
     const key = `${it.normalizedName}|${it.unit ?? ""}`;
     const d = it.docDate ?? "";
     const cur = products.get(key);
@@ -88,7 +89,7 @@ export async function buildShopSummary(): Promise<{
         หน่วย: it.unit,
         หมวด: it.category ? CATEGORY_LABEL[it.category] ?? it.category : null,
         ครั้งที่ซื้อ: 1,
-        จำนวนรวม: it.quantity,
+        จำนวนรวม: qty,
         ยอดซื้อรวม: it.amount,
         ราคาล่าสุด: it.unitPrice,
         ซื้อล่าสุด: it.docDate,
@@ -98,11 +99,11 @@ export async function buildShopSummary(): Promise<{
       });
     } else {
       cur.ครั้งที่ซื้อ += 1;
-      cur.จำนวนรวม += it.quantity;
+      cur.จำนวนรวม += qty;
       cur.ยอดซื้อรวม += it.amount;
       cur.ราคาต่ำสุด = Math.min(cur.ราคาต่ำสุด, it.unitPrice);
       cur.ราคาสูงสุด = Math.max(cur.ราคาสูงสุด, it.unitPrice);
-      if (d >= cur._ts) {
+      if (d >= cur._ts && !it.isFreebie) {
         cur._ts = d;
         cur.ราคาล่าสุด = it.unitPrice;
         cur.ซื้อล่าสุด = it.docDate;
@@ -131,7 +132,7 @@ export async function buildShopSummary(): Promise<{
 
   const payload = {
     หมายเหตุ:
-      "ต้นทุนต่อหน่วยคือราคาที่จ่ายจริง (หักส่วนลดท้ายบิลแล้ว) หน่วยเป็นบาท",
+      "ต้นทุนต่อหน่วยคือราคาที่จ่ายจริง หักส่วนลดท้ายบิลและรวมของแถมในการหารแล้ว หน่วยเป็นบาท",
     วันที่ปัจจุบัน: new Date().toISOString().slice(0, 10),
     สรุปรายเดือน: [...months.entries()]
       .sort((a, b) => b[0].localeCompare(a[0]))

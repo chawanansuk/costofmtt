@@ -30,6 +30,8 @@ export default function ProductsPage() {
     const map = new Map<string, ProductSummary & { _lastTs: string }>();
     for (const it of items) {
       if (!it.normalizedName) continue;
+      // ของแถมนับเป็นจำนวนที่ได้รับด้วย → ต้นทุนเฉลี่ยต่อหน่วยต่ำลงตามจริง
+      const qty = it.quantity + (it.freeQuantity ?? 0);
       // รวมกลุ่มด้วย ชื่อ+หน่วย — สินค้าเดียวกันคนละหน่วย (เช่น ลัง กับ สำรับ)
       // ราคาต่อหน่วยต่างกันมาก ห้ามเฉลี่ยข้ามหน่วย
       const key = `${it.normalizedName}|${it.unit ?? ""}`;
@@ -41,23 +43,25 @@ export default function ProductsPage() {
           name: it.description,
           category: it.category ?? null,
           buyCount: 1,
-          totalQty: it.quantity,
+          totalQty: qty,
           unit: it.unit,
           totalSpent: it.amount,
           avgUnitCost: 0,
           lastPrice: it.unitPrice,
           lastDate: it.docDate,
-          minPrice: it.unitPrice,
-          maxPrice: it.unitPrice,
+          minPrice: it.isFreebie ? Infinity : it.unitPrice,
+          maxPrice: it.isFreebie ? 0 : it.unitPrice,
           _lastTs: date,
         });
       } else {
         cur.buyCount += 1;
-        cur.totalQty += it.quantity;
+        cur.totalQty += qty;
         cur.totalSpent += it.amount;
-        cur.minPrice = Math.min(cur.minPrice, it.unitPrice);
-        cur.maxPrice = Math.max(cur.maxPrice, it.unitPrice);
-        if (date >= cur._lastTs) {
+        if (!it.isFreebie) {
+          cur.minPrice = Math.min(cur.minPrice, it.unitPrice);
+          cur.maxPrice = Math.max(cur.maxPrice, it.unitPrice);
+        }
+        if (date >= cur._lastTs && !it.isFreebie) {
           cur._lastTs = date;
           cur.lastPrice = it.unitPrice;
           cur.lastDate = it.docDate;
@@ -70,6 +74,8 @@ export default function ProductsPage() {
     const list = [...map.values()].map((p) => ({
       ...p,
       avgUnitCost: p.totalQty > 0 ? p.totalSpent / p.totalQty : p.lastPrice,
+      minPrice: Number.isFinite(p.minPrice) ? p.minPrice : p.lastPrice,
+      maxPrice: p.maxPrice > 0 ? p.maxPrice : p.lastPrice,
     }));
     return list.sort((a, b) => b.totalSpent - a.totalSpent);
   }, [items]);
@@ -196,6 +202,14 @@ export default function ProductsPage() {
                             <td>{h.sellerName ?? "—"}</td>
                             <td className="num">
                               {h.quantity} {h.unit ?? ""}
+                              {h.freeQuantity ? (
+                                <div className="small" style={{ color: "var(--ok)" }}>
+                                  + แถม {h.freeQuantity}
+                                </div>
+                              ) : null}
+                              {h.isFreebie && (
+                                <div className="small" style={{ color: "var(--ok)" }}>ของแถม</div>
+                              )}
                             </td>
                             <td className="num">{baht(h.unitPrice)}</td>
                             <td className="num">{baht(h.amount)}</td>
