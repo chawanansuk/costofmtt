@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { CATEGORY_LABEL, DOC_TYPE_LABEL, monthKey } from "./format";
+import { readCostBasis, itemUnitCost, itemAmount, COST_BASIS_LABEL } from "./costbasis";
 
 // สร้าง "สรุปข้อมูลร้าน" แบบกระชับสำหรับส่งให้ AI ตอบคำถาม
 // ส่งเฉพาะตัวเลขที่สรุปแล้ว ไม่ส่งรูปภาพ และจำกัดขนาดไม่ให้เปลืองโทเคน
@@ -14,6 +15,7 @@ export async function buildShopSummary(): Promise<{
   json: string;
   counts: { receipts: number; products: number };
 }> {
+  const basis = readCostBasis();
   const [receipts, items] = await Promise.all([
     db.receipts.toArray(),
     db.items.toArray(),
@@ -80,6 +82,8 @@ export async function buildShopSummary(): Promise<{
   for (const it of items) {
     if (!it.normalizedName) continue;
     const qty = it.quantity + (it.freeQuantity ?? 0); // ของแถมนับเป็นของที่ได้รับ
+    const price = itemUnitCost(it, basis);
+    const spent = itemAmount(it, basis);
     const key = `${it.normalizedName}|${it.unit ?? ""}`;
     const d = it.docDate ?? "";
     const cur = products.get(key);
@@ -90,22 +94,22 @@ export async function buildShopSummary(): Promise<{
         หมวด: it.category ? CATEGORY_LABEL[it.category] ?? it.category : null,
         ครั้งที่ซื้อ: 1,
         จำนวนรวม: qty,
-        ยอดซื้อรวม: it.amount,
-        ราคาล่าสุด: it.unitPrice,
+        ยอดซื้อรวม: spent,
+        ราคาล่าสุด: price,
         ซื้อล่าสุด: it.docDate,
-        ราคาต่ำสุด: it.unitPrice,
-        ราคาสูงสุด: it.unitPrice,
+        ราคาต่ำสุด: price,
+        ราคาสูงสุด: price,
         _ts: d,
       });
     } else {
       cur.ครั้งที่ซื้อ += 1;
       cur.จำนวนรวม += qty;
-      cur.ยอดซื้อรวม += it.amount;
-      cur.ราคาต่ำสุด = Math.min(cur.ราคาต่ำสุด, it.unitPrice);
-      cur.ราคาสูงสุด = Math.max(cur.ราคาสูงสุด, it.unitPrice);
+      cur.ยอดซื้อรวม += spent;
+      cur.ราคาต่ำสุด = Math.min(cur.ราคาต่ำสุด, price);
+      cur.ราคาสูงสุด = Math.max(cur.ราคาสูงสุด, price);
       if (d >= cur._ts && !it.isFreebie) {
         cur._ts = d;
-        cur.ราคาล่าสุด = it.unitPrice;
+        cur.ราคาล่าสุด = price;
         cur.ซื้อล่าสุด = it.docDate;
         cur.ชื่อ = it.description;
         cur.หมวด = it.category ? CATEGORY_LABEL[it.category] ?? it.category : cur.หมวด;
@@ -132,7 +136,7 @@ export async function buildShopSummary(): Promise<{
 
   const payload = {
     หมายเหตุ:
-      "ต้นทุนต่อหน่วยคือราคาที่จ่ายจริง หักส่วนลดท้ายบิลและรวมของแถมในการหารแล้ว หน่วยเป็นบาท",
+      `ต้นทุนต่อหน่วยหักส่วนลดท้ายบิลและรวมของแถมในการหารแล้ว เป็นราคา${COST_BASIS_LABEL[basis]} หน่วยเป็นบาท`,
     วันที่ปัจจุบัน: new Date().toISOString().slice(0, 10),
     สรุปรายเดือน: [...months.entries()]
       .sort((a, b) => b[0].localeCompare(a[0]))

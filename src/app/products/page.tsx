@@ -4,6 +4,12 @@ import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import { baht, thaiDate, CATEGORY_LABEL } from "@/lib/format";
+import {
+  useCostBasis,
+  itemUnitCost,
+  itemAmount,
+  COST_BASIS_LABEL,
+} from "@/lib/costbasis";
 
 interface ProductSummary {
   key: string; // normalizedName — ใช้เป็น react key และดึงประวัติ
@@ -22,6 +28,7 @@ interface ProductSummary {
 
 export default function ProductsPage() {
   const items = useLiveQuery(() => db.items.toArray(), []);
+  const basis = useCostBasis();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
 
@@ -32,6 +39,8 @@ export default function ProductsPage() {
       if (!it.normalizedName) continue;
       // ของแถมนับเป็นจำนวนที่ได้รับด้วย → ต้นทุนเฉลี่ยต่อหน่วยต่ำลงตามจริง
       const qty = it.quantity + (it.freeQuantity ?? 0);
+      const price = itemUnitCost(it, basis);
+      const spent = itemAmount(it, basis);
       // รวมกลุ่มด้วย ชื่อ+หน่วย — สินค้าเดียวกันคนละหน่วย (เช่น ลัง กับ สำรับ)
       // ราคาต่อหน่วยต่างกันมาก ห้ามเฉลี่ยข้ามหน่วย
       const key = `${it.normalizedName}|${it.unit ?? ""}`;
@@ -45,25 +54,25 @@ export default function ProductsPage() {
           buyCount: 1,
           totalQty: qty,
           unit: it.unit,
-          totalSpent: it.amount,
+          totalSpent: spent,
           avgUnitCost: 0,
-          lastPrice: it.unitPrice,
+          lastPrice: price,
           lastDate: it.docDate,
-          minPrice: it.isFreebie ? Infinity : it.unitPrice,
-          maxPrice: it.isFreebie ? 0 : it.unitPrice,
+          minPrice: it.isFreebie ? Infinity : price,
+          maxPrice: it.isFreebie ? 0 : price,
           _lastTs: date,
         });
       } else {
         cur.buyCount += 1;
         cur.totalQty += qty;
-        cur.totalSpent += it.amount;
+        cur.totalSpent += spent;
         if (!it.isFreebie) {
-          cur.minPrice = Math.min(cur.minPrice, it.unitPrice);
-          cur.maxPrice = Math.max(cur.maxPrice, it.unitPrice);
+          cur.minPrice = Math.min(cur.minPrice, price);
+          cur.maxPrice = Math.max(cur.maxPrice, price);
         }
         if (date >= cur._lastTs && !it.isFreebie) {
           cur._lastTs = date;
-          cur.lastPrice = it.unitPrice;
+          cur.lastPrice = price;
           cur.lastDate = it.docDate;
           cur.name = it.description;
           cur.unit = it.unit ?? cur.unit;
@@ -78,7 +87,7 @@ export default function ProductsPage() {
       maxPrice: p.maxPrice > 0 ? p.maxPrice : p.lastPrice,
     }));
     return list.sort((a, b) => b.totalSpent - a.totalSpent);
-  }, [items]);
+  }, [items, basis]);
 
   // ประวัติการซื้อต่อสินค้า (ล่าสุดก่อน) สำหรับ drill-down — key เดียวกับด้านบน
   const history = useMemo(() => {
@@ -112,7 +121,8 @@ export default function ProductsPage() {
         <div>
           <h1>ต้นทุนต่อสินค้า</h1>
           <p className="page-sub">
-            รวมจากรายการในใบกำกับภาษีทั้งหมด {products?.length ?? 0} รายการ
+            รวมจากรายการในใบกำกับภาษีทั้งหมด {products?.length ?? 0} รายการ ·
+            ต้นทุน<strong>{COST_BASIS_LABEL[basis]}</strong> (เปลี่ยนได้ในหน้าตั้งค่า)
           </p>
         </div>
       </div>
@@ -211,7 +221,7 @@ export default function ProductsPage() {
                                 <div className="small" style={{ color: "var(--ok)" }}>ของแถม</div>
                               )}
                             </td>
-                            <td className="num">{baht(h.unitPrice)}</td>
+                            <td className="num">{baht(itemUnitCost(h, basis))}</td>
                             <td className="num">{baht(h.amount)}</td>
                           </tr>
                         ))}

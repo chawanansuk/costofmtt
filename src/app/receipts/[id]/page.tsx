@@ -6,6 +6,12 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db, deleteReceipt } from "@/lib/db";
 import { updateReceipt } from "@/lib/save";
 import { billSummary } from "@/lib/cost";
+import {
+  useCostBasis,
+  itemUnitCost,
+  itemAmount,
+  COST_BASIS_LABEL,
+} from "@/lib/costbasis";
 import type { ExtractedReceipt } from "@/lib/types";
 import { baht, thaiDate, DOC_TYPE_LABEL, CATEGORY_LABEL } from "@/lib/format";
 import ReceiptForm from "@/components/ReceiptForm";
@@ -35,6 +41,7 @@ export default function ReceiptDetailPage({
     itemsSum: 0,
   });
 
+  const basis = useCostBasis();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -211,7 +218,12 @@ export default function ReceiptDetailPage({
 
       {items && items.length > 0 && (
         <div className="card mt-3">
-          <div className="card-title">รายการสินค้า</div>
+          <div className="card-title">
+            รายการสินค้า{" "}
+            <span className="small muted" style={{ fontWeight: 400 }}>
+              (ต้นทุน{COST_BASIS_LABEL[basis]})
+            </span>
+          </div>
           <div className="table-wrap">
             <table className="data">
               <thead>
@@ -246,8 +258,13 @@ export default function ReceiptDetailPage({
                         <div className="small" style={{ color: "var(--ok)" }}>ของแถม</div>
                       )}
                     </td>
-                    <td className="num">{baht(it.unitPrice)}</td>
-                    <td className="num">{baht(it.amount)}</td>
+                    <td className="num">
+                      {baht(itemUnitCost(it, basis))}
+                      {basis === "inc" && it.unitPriceIncVat != null && (
+                        <div className="small muted">ก่อน VAT {baht(it.unitPrice)}</div>
+                      )}
+                    </td>
+                    <td className="num">{baht(itemAmount(it, basis))}</td>
                   </tr>
                 ))}
               </tbody>

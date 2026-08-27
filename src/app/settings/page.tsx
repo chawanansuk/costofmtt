@@ -5,6 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import { summarizeUsage, PRICE_USD_PER_MTOK, USD_TO_THB } from "@/lib/usage";
 import { baht } from "@/lib/format";
+import { COST_BASIS_KEY, readCostBasis, type CostBasis } from "@/lib/costbasis";
 import {
   exportReceiptsCsv,
   exportItemsCsv,
@@ -27,6 +28,7 @@ export default function SettingsPage() {
   const usageRecords = useLiveQuery(() => db.usage.toArray(), []);
   const ai = usageRecords ? summarizeUsage(usageRecords) : null;
 
+  const [costBasis, setCostBasis] = useState<CostBasis>("inc");
   const [passcode, setPasscode] = useState("");
   const [myShop, setMyShop] = useState("");
   const [storageInfo, setStorageInfo] = useState<{
@@ -35,6 +37,7 @@ export default function SettingsPage() {
   } | null>(null);
   useEffect(() => {
     setPasscode(localStorage.getItem("costsnap:passcode") ?? "");
+    setCostBasis(readCostBasis());
     setMyShop(localStorage.getItem("costsnap:myshop") ?? "");
     (async () => {
       try {
@@ -59,6 +62,17 @@ export default function SettingsPage() {
     }
     setErr(null);
   }
+  function pickCostBasis(v: CostBasis) {
+    setCostBasis(v);
+    localStorage.setItem(COST_BASIS_KEY, v);
+    setErr(null);
+    setMsg(
+      v === "inc"
+        ? "ต้นทุนสินค้าจะคิดแบบรวม VAT (เงินที่จ่ายจริง)"
+        : "ต้นทุนสินค้าจะคิดแบบก่อน VAT (สำหรับร้านที่ขอคืนภาษีซื้อ)"
+    );
+  }
+
   function savePasscode() {
     if (passcode.trim()) {
       localStorage.setItem("costsnap:passcode", passcode.trim());
@@ -139,6 +153,34 @@ export default function SettingsPage() {
             บันทึก
           </button>
         </div>
+      </div>
+
+      <div className="card mt-3">
+        <div className="card-title">ต้นทุนสินค้าคิดรวม VAT ไหม</div>
+        <p className="muted small" style={{ marginBottom: 10 }}>
+          มีผลกับต้นทุนต่อหน่วยในหน้าสินค้า หน้าเอกสาร การเตือนราคาขึ้น และการถาม AI
+          (ยอดเงินของใบเอกสารไม่เปลี่ยน) ระบบเก็บไว้ทั้งสองแบบ สลับได้ตลอด
+          ไม่ต้องสแกนใหม่
+        </p>
+        <div className="stack">
+          <button
+            className={`btn btn-block ${costBasis === "inc" ? "btn-primary" : "btn-secondary"}`}
+            onClick={() => pickCostBasis("inc")}
+          >
+            {costBasis === "inc" ? "✓ " : ""}รวม VAT — เงินที่จ่ายจริง
+          </button>
+          <button
+            className={`btn btn-block ${costBasis === "ex" ? "btn-primary" : "btn-secondary"}`}
+            onClick={() => pickCostBasis("ex")}
+          >
+            {costBasis === "ex" ? "✓ " : ""}ก่อน VAT — สำหรับร้านที่ขอคืนภาษีซื้อ
+          </button>
+        </div>
+        <p className="muted small mt-2">
+          ถ้าร้านจดทะเบียน VAT และนำภาษีซื้อไปหักในแบบ ภ.พ.30 ได้
+          VAT จะไม่ใช่ต้นทุนจริง ควรเลือก &quot;ก่อน VAT&quot; ไม่งั้นจะคิดต้นทุนสูงเกินไป 7%
+          (ไม่ใช่คำแนะนำทางภาษี — ถ้าไม่แน่ใจให้ถามนักบัญชี)
+        </p>
       </div>
 
       <div className="card mt-3">

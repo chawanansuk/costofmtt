@@ -114,8 +114,10 @@ export interface ItemRecord {
   freeQuantity?: number; // ของแถมที่ได้มาพร้อมบรรทัดนี้ (รวมในการหารต้นทุนแล้ว)
   isFreebie?: boolean; // บรรทัดของแถมล้วน ที่ไม่มีบรรทัดจ่ายเงินคู่กันในใบเดียวกัน
   unit: string | null;
-  unitPrice: number; // ต้นทุนจริงต่อหน่วย = amount ÷ (quantity + freeQuantity)
-  amount: number;
+  unitPrice: number; // ต้นทุนต่อหน่วยก่อน VAT = amount ÷ (quantity + freeQuantity)
+  amount: number; // มูลค่าก่อน VAT (หลังหักส่วนลดท้ายบิลแล้ว)
+  unitPriceIncVat?: number; // ต้นทุนต่อหน่วยรวม VAT = เงินที่จ่ายจริงต่อหน่วย
+  amountIncVat?: number; // มูลค่ารวม VAT
   category: CostCategory | null;
 }
 

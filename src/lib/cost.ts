@@ -220,6 +220,34 @@ function spreadDiscount(raw: number[], factor: number): number[] {
   return out.map((v) => v / 100);
 }
 
+// ราคาที่พิมพ์ในรายการรวม VAT แล้วหรือยัง?
+// ถ้ายัง (ผลรวมรายการหลังหักส่วนลด ≈ ฐานก่อน VAT) ต้องคูณกลับเป็นเงินที่จ่ายจริง
+// ถ้ารวมแล้ว (≈ ยอดสุทธิ) คูณเพิ่มอีกจะกลายเป็นบวก VAT ซ้ำ
+export function vatUpliftFactor(data: ExtractedReceipt, netItemsSum: number): number {
+  const s = summarizeExtracted(data);
+  if (s.vat <= 0 || s.netBeforeVat <= 0 || netItemsSum <= 0) return 1;
+  const tol = Math.max(1, netItemsSum * 0.005);
+  if (Math.abs(netItemsSum - s.total) <= tol) return 1; // รวม VAT อยู่แล้ว
+  if (Math.abs(netItemsSum - s.netBeforeVat) > tol) return 1; // ยอดไม่ตรงทั้งสองแบบ ไม่เดา
+  return s.total / s.netBeforeVat;
+}
+
+// กระจายยอดตามสัดส่วนให้ผลรวมลงตัวพอดี (ใช้เศษมากได้ก่อนเหมือนกัน)
+function spreadTo(values: number[], target: number): number[] {
+  const sum = values.reduce((a, b) => a + b, 0);
+  if (sum <= 0 || values.length === 0) return values.map(round2);
+  const exact = values.map((v) => (v / sum) * target * 100);
+  const out = exact.map((v) => Math.floor(v + 1e-6));
+  let left = Math.round(target * 100) - out.reduce((a, b) => a + b, 0);
+  const order = exact
+    .map((v, i) => ({ i, frac: v - Math.floor(v + 1e-6) }))
+    .sort((a, b) => b.frac - a.frac);
+  for (let k = 0; left > 0 && k < order.length * 2; k++, left--) {
+    out[order[k % order.length].i] += 1;
+  }
+  return out.map((v) => v / 100);
+}
+
 export function buildItemRecords(
   receiptId: number,
   data: ExtractedReceipt
@@ -239,6 +267,14 @@ export function buildItemRecords(
     (it) => it.amount ?? (it.unit_price != null ? it.unit_price * (it.quantity ?? 1) : 0)
   );
   const net = spreadDiscount(raw, factor);
+
+  // ต้นทุนที่ "จ่ายจริง" ต้องรวม VAT ด้วย — เก็บคู่กันไว้ทั้งสองแบบ
+  // (แบบก่อน VAT ใช้กระทบยอด/ยื่น ภ.พ.30 แบบรวม VAT ใช้เป็นต้นทุนสินค้า)
+  const netSum = round2(net.reduce((a, b) => a + b, 0));
+  const uplift = vatUpliftFactor(data, netSum);
+  const incVat =
+    uplift > 1 ? spreadTo(net, round2(netSum * uplift)) : net.map(round2);
+
   return keep.map(({ it, i: orig }, i) => {
     const qty = it.quantity ?? 1;
     const freeQuantity = merged.get(orig)?.freeQuantity ?? 0;
@@ -256,6 +292,8 @@ export function buildItemRecords(
       unit: it.unit,
       unitPrice: totalQty > 0 ? round2(net[i] / totalQty) : net[i],
       amount: net[i],
+      unitPriceIncVat: totalQty > 0 ? round2(incVat[i] / totalQty) : incVat[i],
+      amountIncVat: incVat[i],
       category: it.category,
     };
   });

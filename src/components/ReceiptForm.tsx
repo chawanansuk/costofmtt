@@ -10,8 +10,10 @@ import {
   summarizeExtracted,
   mergeFreebies,
   lineAmount,
+  vatUpliftFactor,
   round2,
 } from "@/lib/cost";
+import { useCostBasis, itemUnitCost, COST_BASIS_LABEL } from "@/lib/costbasis";
 import { baht, thaiDate, DOC_TYPE_LABEL, CATEGORY_LABEL, TEMP_DOC_TYPES } from "@/lib/format";
 
 interface Props {
@@ -46,7 +48,17 @@ export default function ReceiptForm({
   excludeReceiptId,
 }: Props) {
   const [data, setData] = useState<ExtractedReceipt>(initial);
+  const basis = useCostBasis();
   const validation = useMemo(() => validateExtraction(data), [data]);
+
+  const itemsSum = data.line_items.reduce((s, it) => s + (it.amount ?? 0), 0);
+  const discountFactor = billDiscountFactor(data);
+  // ต้นทุนที่จ่ายจริง = ราคาป้าย × ส่วนลดท้ายบิล × VAT (ถ้าคิดต้นทุนแบบรวม VAT)
+  const vatFactor =
+    basis === "inc"
+      ? vatUpliftFactor(data, round2(itemsSum * discountFactor))
+      : 1;
+  const costFactor = discountFactor * vatFactor;
 
   // เทียบราคากับการซื้อครั้งล่าสุดของสินค้าเดียวกัน (ชื่อ+หน่วยเดียวกัน)
   const allItems = useLiveQuery(() => db.items.toArray(), []);
@@ -61,7 +73,7 @@ export default function ReceiptForm({
       prevDate: string | null;
     }[] = [];
     // เทียบด้วยต้นทุนหลังหักส่วนลดท้ายบิล เพื่อให้เทียบกับราคาที่เก็บไว้แบบเดียวกัน
-    const factor = billDiscountFactor(data);
+    const factor = costFactor;
     const { merged } = mergeFreebies(data.line_items);
     for (let idx = 0; idx < data.line_items.length; idx++) {
       const it = data.line_items[idx];
@@ -80,13 +92,14 @@ export default function ReceiptForm({
             (excludeReceiptId == null || p.receiptId !== excludeReceiptId)
         )
         .sort((a, b) => (b.docDate ?? "").localeCompare(a.docDate ?? ""))[0];
-      if (!prev || prev.unitPrice <= 0) continue;
-      const pct = (now - prev.unitPrice) / prev.unitPrice;
+      const prevCost = prev ? itemUnitCost(prev, basis) : 0;
+      if (!prev || prevCost <= 0) continue;
+      const pct = (now - prevCost) / prevCost;
       if (pct >= PRICE_ALERT_THRESHOLD) {
         alerts.push({
           name: it.description,
           unit: it.unit,
-          prev: prev.unitPrice,
+          prev: prevCost,
           now,
           pct: pct * 100,
           prevDate: prev.docDate,
@@ -94,7 +107,7 @@ export default function ReceiptForm({
       }
     }
     return alerts;
-  }, [allItems, data.line_items, excludeReceiptId]);
+  }, [allItems, data.line_items, excludeReceiptId, basis, costFactor]);
 
   const set = (patch: Partial<ExtractedReceipt>) =>
     setData((d) => ({ ...d, ...patch }));
@@ -118,9 +131,6 @@ export default function ReceiptForm({
       ],
     }));
 
-  const itemsSum = data.line_items.reduce((s, it) => s + (it.amount ?? 0), 0);
-
-  const discountFactor = billDiscountFactor(data);
   const money = summarizeExtracted(data);
 
   // ของแถมที่ถูกยุบเข้ากับบรรทัดที่จ่ายเงิน — โชว์ให้เห็นว่าต้นทุนถูกหารใหม่แล้ว
@@ -130,7 +140,7 @@ export default function ReceiptForm({
   const freebieNotes = [...freebieMap.values()].map((m) => {
     const it = data.line_items[m.index];
     const qty = it.quantity ?? 1;
-    const amount = lineAmount(it) * discountFactor;
+    const amount = lineAmount(it) * costFactor;
     return {
       name: it.description,
       unit: it.unit,
@@ -487,6 +497,12 @@ export default function ReceiptForm({
             <span style={{ color: "var(--warn)" }}> — ไม่ตรงกับยอดเงินด้านล่าง</span>
           )}
         </p>
+        {vatFactor > 1 && (
+          <div className="alert alert-ok mt-2 small">
+            ✓ ต้นทุนที่บันทึกเป็นราคา<strong>รวม VAT</strong> (เงินที่จ่ายจริงต่อหน่วย) —
+            ถ้าร้านขอคืนภาษีซื้อได้ ให้เปลี่ยนเป็น &quot;ก่อน VAT&quot; ที่หน้าตั้งค่า
+          </div>
+        )}
         {freebieNotes.length > 0 && (
           <div className="alert alert-ok mt-2 small">
             🎁 <strong>รวมของแถมเข้าต้นทุนให้แล้ว</strong>
