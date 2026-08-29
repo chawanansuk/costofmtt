@@ -298,3 +298,32 @@ export function buildItemRecords(
     };
   });
 }
+
+// คำนวณต้นทุนรวม VAT ย้อนหลังจากเรคคอร์ดที่บันทึกไว้แล้ว
+// (ใช้ตอนอัปเกรดฐานข้อมูล และตอนกู้คืนไฟล์สำรองที่สร้างก่อนมีฟีเจอร์นี้)
+export function backfillIncVat(
+  receipt: { total: number; vatAmount: number },
+  items: { amount: number; quantity: number; freeQuantity?: number }[]
+): { amountIncVat: number; unitPriceIncVat: number }[] {
+  const netSum = items.reduce((s, it) => s + it.amount, 0);
+  const netBeforeVat = round2(receipt.total - receipt.vatAmount);
+  const tol = Math.max(1, netSum * 0.005);
+  const uplift =
+    receipt.vatAmount > 0 &&
+    netBeforeVat > 0 &&
+    netSum > 0 &&
+    Math.abs(netSum - receipt.total) > tol &&
+    Math.abs(netSum - netBeforeVat) <= tol
+      ? receipt.total / netBeforeVat
+      : 1;
+  const incVat =
+    uplift > 1 ? spreadTo(items.map((it) => it.amount), round2(netSum * uplift))
+              : items.map((it) => round2(it.amount));
+  return items.map((it, i) => {
+    const qty = it.quantity + (it.freeQuantity ?? 0);
+    return {
+      amountIncVat: incVat[i],
+      unitPriceIncVat: qty > 0 ? round2(incVat[i] / qty) : incVat[i],
+    };
+  });
+}

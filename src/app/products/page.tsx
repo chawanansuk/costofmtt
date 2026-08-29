@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
-import { baht, thaiDate, CATEGORY_LABEL } from "@/lib/format";
+import { baht, thaiDate, CATEGORY_LABEL, isCostDocument } from "@/lib/format";
 import {
   useCostBasis,
   itemUnitCost,
@@ -28,6 +28,13 @@ interface ProductSummary {
 
 export default function ProductsPage() {
   const items = useLiveQuery(() => db.items.toArray(), []);
+  // ใบเสนอราคา/ใบยืมสินค้ายังไม่ใช่ราคาที่จ่ายจริง ไม่เอามาคิดต้นทุน
+  const nonCostIds = useLiveQuery(async () => {
+    const rs = await db.receipts.toArray();
+    return new Set(
+      rs.filter((r) => !isCostDocument(r.documentType)).map((r) => r.id!)
+    );
+  }, []);
   const basis = useCostBasis();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
@@ -37,6 +44,7 @@ export default function ProductsPage() {
     const map = new Map<string, ProductSummary & { _lastTs: string }>();
     for (const it of items) {
       if (!it.normalizedName) continue;
+      if (nonCostIds?.has(it.receiptId)) continue;
       // ของแถมนับเป็นจำนวนที่ได้รับด้วย → ต้นทุนเฉลี่ยต่อหน่วยต่ำลงตามจริง
       const qty = it.quantity + (it.freeQuantity ?? 0);
       const price = itemUnitCost(it, basis);
@@ -87,12 +95,13 @@ export default function ProductsPage() {
       maxPrice: p.maxPrice > 0 ? p.maxPrice : p.lastPrice,
     }));
     return list.sort((a, b) => b.totalSpent - a.totalSpent);
-  }, [items, basis]);
+  }, [items, basis, nonCostIds]);
 
   // ประวัติการซื้อต่อสินค้า (ล่าสุดก่อน) สำหรับ drill-down — key เดียวกับด้านบน
   const history = useMemo(() => {
     const m = new Map<string, NonNullable<typeof items>>();
     for (const it of items ?? []) {
+      if (nonCostIds?.has(it.receiptId)) continue;
       if (!it.normalizedName) continue;
       const key = `${it.normalizedName}|${it.unit ?? ""}`;
       const arr = m.get(key) ?? [];

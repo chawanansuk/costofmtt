@@ -4,7 +4,10 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
-import { baht, thaiDate, monthKey, monthLabel, CATEGORY_LABEL } from "@/lib/format";
+import {
+  baht, thaiDate, monthKey, monthLabel, CATEGORY_LABEL, isCostDocument,
+} from "@/lib/format";
+import { useCostBasis, itemAmount, COST_BASIS_LABEL } from "@/lib/costbasis";
 import BarChart from "@/components/BarChart";
 import BackupReminder from "@/components/BackupReminder";
 
@@ -21,6 +24,7 @@ function lastMonths(n: number): string[] {
 export default function DashboardPage() {
   const receipts = useLiveQuery(() => db.receipts.toArray(), []);
   const items = useLiveQuery(() => db.items.toArray(), []);
+  const basis = useCostBasis();
 
   const stats = useMemo(() => {
     if (!receipts) return null;
@@ -30,17 +34,23 @@ export default function DashboardPage() {
     let monthVat = 0;
     let monthCount = 0;
     const bySeller = new Map<string, number>();
+    // ใบเสนอราคา/ใบยืมสินค้ายังไม่ใช่การซื้อ — ไม่นับเป็นต้นทุน
+    const costReceipts = receipts.filter((r) => isCostDocument(r.documentType));
+    const skipped = receipts.length - costReceipts.length;
+    // ต้นทุนตามฐานที่ผู้ใช้เลือก: รวม VAT = ยอดสุทธิ, ก่อน VAT = ฐานภาษี
+    const amountOf = (r: (typeof receipts)[number]) =>
+      basis === "inc" ? r.total : r.subtotal;
 
-    for (const r of receipts) {
+    for (const r of costReceipts) {
       const mk = monthKey(r.docDate, r.createdAt);
-      byMonth.set(mk, (byMonth.get(mk) ?? 0) + r.total);
+      byMonth.set(mk, (byMonth.get(mk) ?? 0) + amountOf(r));
       if (mk === thisMonth) {
-        monthCost += r.total;
+        monthCost += amountOf(r);
         monthCount += 1;
         if (r.vatClaimable) monthVat += r.vatAmount;
       }
       const seller = r.sellerName ?? "(ไม่ระบุ)";
-      bySeller.set(seller, (bySeller.get(seller) ?? 0) + r.total);
+      bySeller.set(seller, (bySeller.get(seller) ?? 0) + amountOf(r));
     }
 
     const chart = lastMonths(6).map((mk) => ({
@@ -57,21 +67,21 @@ export default function DashboardPage() {
       .slice(0, 5);
 
     // บิลค้างจ่าย (ซื้อเครดิต) — เรียงตามวันครบกำหนดใกล้สุดก่อน
-    const unpaid = receipts
+    const unpaid = costReceipts
       .filter((r) => r.paid === false)
       .sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"));
     const unpaidTotal = unpaid.reduce((s, r) => s + r.total, 0);
 
     // ต้นทุนตามหมวดหมู่เดือนนี้ (อิงเดือนของใบที่รายการนั้นสังกัด)
     const receiptMonth = new Map<number, string>();
-    for (const r of receipts) {
+    for (const r of costReceipts) {
       if (r.id != null) receiptMonth.set(r.id, monthKey(r.docDate, r.createdAt));
     }
     const byCategory = new Map<string, number>();
     for (const it of items ?? []) {
       if (receiptMonth.get(it.receiptId) !== thisMonth) continue;
       const key = it.category ?? "uncategorized";
-      byCategory.set(key, (byCategory.get(key) ?? 0) + it.amount);
+      byCategory.set(key, (byCategory.get(key) ?? 0) + itemAmount(it, basis));
     }
     const categories = [...byCategory.entries()]
       .sort((a, b) => b[1] - a[1])
@@ -85,9 +95,9 @@ export default function DashboardPage() {
     return {
       monthCost, monthVat, monthCount, chart, topSellers, recent,
       totalCount: receipts.length, categories, categoryMax,
-      unpaid, unpaidTotal,
+      unpaid, unpaidTotal, skipped,
     };
-  }, [receipts, items]);
+  }, [receipts, items, basis]);
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -123,7 +133,7 @@ export default function DashboardPage() {
             <div className="stat">
               <div className="label">ต้นทุนเดือนนี้</div>
               <div className="value">{stats ? baht(stats.monthCost) : "…"}</div>
-              <div className="hint">บาท</div>
+              <div className="hint">บาท ({COST_BASIS_LABEL[basis]})</div>
             </div>
             <div className="stat">
               <div className="label">VAT ซื้อขอคืนได้</div>
@@ -141,6 +151,13 @@ export default function DashboardPage() {
               <div className="hint">ใบ</div>
             </div>
           </div>
+
+          {stats && stats.skipped > 0 && (
+            <p className="muted small mt-2">
+              ไม่นับใบเสนอราคา/ใบยืมสินค้า {stats.skipped} ใบ เป็นต้นทุน
+              (ยังดูได้ในหน้าเอกสาร)
+            </p>
+          )}
 
           <Link href="/ask" className="list-item mt-4" style={{ borderColor: "var(--primary)" }}>
             <div>

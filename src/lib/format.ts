@@ -61,3 +61,11 @@ export const TEMP_DOC_TYPES = new Set([
   "delivery_note",
   "billing_note",
 ]);
+
+// เอกสารที่ยัง "ไม่ใช่การซื้อ" — ใบเสนอราคายังไม่ตกลงซื้อ ใบยืมสินค้ายังไม่ได้จ่าย
+// ต้องไม่ถูกนับรวมเป็นต้นทุนหรือราคาสินค้า ไม่งั้นตัวเลขจะเพี้ยน
+export const NON_COST_DOC_TYPES = new Set(["quotation", "goods_loan"]);
+
+export function isCostDocument(documentType: string): boolean {
+  return !NON_COST_DOC_TYPES.has(documentType);
+}

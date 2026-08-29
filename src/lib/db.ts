@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
 import type { ReceiptRecord, ItemRecord, UsageRecord } from "./types";
+import { backfillIncVat } from "./cost";
 
 // ข้อมูลทั้งหมดอยู่ใน IndexedDB บนเครื่องผู้ใช้ (offline-first)
 export const db = new Dexie("costsnap") as Dexie & {
@@ -44,35 +45,20 @@ db.version(5)
     usage: "++id, at, kind",
   })
   .upgrade(async (tx) => {
-    const receipts = await tx.table("receipts").toArray();
-    const items = await tx.table("items").toArray();
+    const receipts = (await tx.table("receipts").toArray()) as ReceiptRecord[];
+    const items = (await tx.table("items").toArray()) as ItemRecord[];
     const byReceipt = new Map<number, ItemRecord[]>();
-    for (const it of items as ItemRecord[]) {
+    for (const it of items) {
       const list = byReceipt.get(it.receiptId) ?? [];
       list.push(it);
       byReceipt.set(it.receiptId, list);
     }
-    for (const r of receipts as ReceiptRecord[]) {
+    for (const r of receipts) {
       const list = r.id != null ? byReceipt.get(r.id) : undefined;
       if (!list || list.length === 0) continue;
-      const netSum = list.reduce((s, it) => s + it.amount, 0);
-      const netBeforeVat = r.total - r.vatAmount;
-      const tol = Math.max(1, netSum * 0.005);
-      const uplift =
-        r.vatAmount > 0 &&
-        netBeforeVat > 0 &&
-        Math.abs(netSum - r.total) > tol &&
-        Math.abs(netSum - netBeforeVat) <= tol
-          ? r.total / netBeforeVat
-          : 1;
-      for (const it of list) {
-        const amountIncVat = Math.round(it.amount * uplift * 100) / 100;
-        const qty = it.quantity + (it.freeQuantity ?? 0);
-        await tx.table("items").update(it.id!, {
-          amountIncVat,
-          unitPriceIncVat:
-            qty > 0 ? Math.round((amountIncVat / qty) * 100) / 100 : amountIncVat,
-        });
+      const filled = backfillIncVat(r, list);
+      for (let i = 0; i < list.length; i++) {
+        await tx.table("items").update(list[i].id!, filled[i]);
       }
     }
   });

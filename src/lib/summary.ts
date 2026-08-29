@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { CATEGORY_LABEL, DOC_TYPE_LABEL, monthKey } from "./format";
+import { CATEGORY_LABEL, DOC_TYPE_LABEL, monthKey, isCostDocument } from "./format";
 import { readCostBasis, itemUnitCost, itemAmount, COST_BASIS_LABEL } from "./costbasis";
 
 // สร้าง "สรุปข้อมูลร้าน" แบบกระชับสำหรับส่งให้ AI ตอบคำถาม
@@ -16,10 +16,16 @@ export async function buildShopSummary(): Promise<{
   counts: { receipts: number; products: number };
 }> {
   const basis = readCostBasis();
-  const [receipts, items] = await Promise.all([
+  const [allReceipts, allItems] = await Promise.all([
     db.receipts.toArray(),
     db.items.toArray(),
   ]);
+  // ใบเสนอราคา/ใบยืมสินค้ายังไม่ใช่การซื้อ ไม่เอาไปคิดต้นทุน
+  const nonCost = new Set(
+    allReceipts.filter((r) => !isCostDocument(r.documentType)).map((r) => r.id)
+  );
+  const receipts = allReceipts.filter((r) => isCostDocument(r.documentType));
+  const items = allItems.filter((it) => !nonCost.has(it.receiptId));
 
   // ---- สรุปรายเดือน ----
   const months = new Map<

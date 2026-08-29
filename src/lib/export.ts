@@ -1,5 +1,6 @@
 import { db } from "./db";
 import type { ReceiptRecord, ItemRecord } from "./types";
+import { backfillIncVat } from "./cost";
 
 // CSV มี BOM เพื่อให้ Excel เปิดภาษาไทยได้ถูกต้อง
 function toCsv(rows: (string | number | null | undefined)[][]): string {
@@ -152,12 +153,25 @@ export async function importBackup(file: File): Promise<{ receipts: number; item
       });
       if (oldId != null) idMap.set(oldId, newId as number);
     }
-    await db.items.bulkAdd(
-      backup.items.map(({ id: _id, ...it }) => ({
-        ...it,
-        receiptId: idMap.get(it.receiptId) ?? it.receiptId,
-      }))
-    );
+    const restored = backup.items.map(({ id: _id, ...it }) => ({
+      ...it,
+      receiptId: idMap.get(it.receiptId) ?? it.receiptId,
+    }));
+    // ไฟล์สำรองเก่าไม่มีต้นทุนแบบรวม VAT — คำนวณย้อนหลังให้ตอนกู้คืน
+    const byReceipt = new Map<number, typeof restored>();
+    for (const it of restored) {
+      const list = byReceipt.get(it.receiptId) ?? [];
+      list.push(it);
+      byReceipt.set(it.receiptId, list);
+    }
+    for (const [rid, list] of byReceipt) {
+      if (list.every((it) => it.amountIncVat != null)) continue;
+      const r = await db.receipts.get(rid);
+      if (!r) continue;
+      const filled = backfillIncVat(r, list);
+      list.forEach((it, i) => Object.assign(it, filled[i]));
+    }
+    await db.items.bulkAdd(restored);
   });
 
   return { receipts: backup.receipts.length, items: backup.items.length };
