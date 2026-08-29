@@ -11,6 +11,16 @@ import {
   COST_BASIS_LABEL,
 } from "@/lib/costbasis";
 
+interface SellerRow {
+  seller: string;
+  qty: number;
+  spent: number;
+  avg: number; // ต้นทุนเฉลี่ยถ่วงน้ำหนักตามปริมาณของผู้ขายรายนี้
+  last: number;
+  lastDate: string | null;
+  times: number;
+}
+
 interface ProductSummary {
   key: string; // normalizedName — ใช้เป็น react key และดึงประวัติ
   name: string;
@@ -112,7 +122,49 @@ export default function ProductsPage() {
       arr.sort((a, b) => (b.docDate ?? "").localeCompare(a.docDate ?? ""));
     }
     return m;
-  }, [items]);
+  }, [items, nonCostIds]);
+
+  // เทียบราคาสินค้าเดียวกันระหว่างผู้ขาย — ใช้ต้นทุนเฉลี่ยถ่วงน้ำหนักตามปริมาณ
+  // เพราะบางเจ้าขายทีละน้อยราคาแพงกว่า การเทียบราคาล่าสุดอย่างเดียวจะหลอกตา
+  const sellerCompare = useMemo(() => {
+    // saving = ถ้าซื้อจากเจ้าถูกสุดทั้งหมด จะประหยัดได้เท่าไร
+    const out = new Map<string, { rows: SellerRow[]; saving: number }>();
+    for (const [key, list] of history) {
+      const bySeller = new Map<string, SellerRow & { _ts: string }>();
+      for (const it of list) {
+        if (it.isFreebie) continue; // ของแถมล้วนไม่ใช่ราคาซื้อ
+        const qty = it.quantity + (it.freeQuantity ?? 0);
+        const spent = itemAmount(it, basis);
+        if (qty <= 0 || spent <= 0) continue;
+        const name = it.sellerName ?? "(ไม่ระบุผู้ขาย)";
+        const d = it.docDate ?? "";
+        const cur = bySeller.get(name);
+        if (!cur) {
+          bySeller.set(name, {
+            seller: name, qty, spent, avg: spent / qty,
+            last: itemUnitCost(it, basis), lastDate: it.docDate, times: 1, _ts: d,
+          });
+        } else {
+          cur.qty += qty;
+          cur.spent += spent;
+          cur.times += 1;
+          if (d >= cur._ts) {
+            cur._ts = d;
+            cur.last = itemUnitCost(it, basis);
+            cur.lastDate = it.docDate;
+          }
+        }
+      }
+      if (bySeller.size < 2) continue;
+      const rows = [...bySeller.values()]
+        .map((r) => ({ ...r, avg: r.spent / r.qty }))
+        .sort((a, b) => a.avg - b.avg);
+      const cheapest = rows[0].avg;
+      const saving = rows.reduce((s, r) => s + (r.avg - cheapest) * r.qty, 0);
+      out.set(key, { rows, saving });
+    }
+    return out;
+  }, [history, basis]);
 
   const filtered = useMemo(() => {
     if (!products) return [];
@@ -168,6 +220,7 @@ export default function ProductsPage() {
           const priceChanged =
             p.buyCount > 1 && Math.abs(p.maxPrice - p.minPrice) > 0.005;
           const hist = history.get(p.key) ?? [];
+          const cmp = sellerCompare.get(p.key);
           return (
             <div key={p.key} className="card">
               <div className="row spread">
@@ -198,6 +251,64 @@ export default function ProductsPage() {
                   </span>
                 )}
               </div>
+              {cmp && (
+                <details className="mt-2" open>
+                  <summary
+                    className="small"
+                    style={{ cursor: "pointer", color: "var(--primary)", fontWeight: 600 }}
+                  >
+                    🏷️ เทียบราคา {cmp.rows.length} เจ้า — ถูกสุด{" "}
+                    {cmp.rows[0].seller} ({baht(cmp.rows[0].avg)} ฿)
+                  </summary>
+                  <div className="table-wrap mt-2">
+                    <table className="data">
+                      <thead>
+                        <tr>
+                          <th>ผู้ขาย</th>
+                          <th className="num">เฉลี่ย/{p.unit ?? "หน่วย"}</th>
+                          <th className="num">ล่าสุด</th>
+                          <th className="num">แพงกว่าถูกสุด</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cmp.rows.map((r, i) => {
+                          const diff = r.avg - cmp.rows[0].avg;
+                          const pct = cmp.rows[0].avg > 0 ? (diff / cmp.rows[0].avg) * 100 : 0;
+                          return (
+                            <tr key={r.seller}>
+                              <td>
+                                {i === 0 ? "🥇 " : ""}
+                                {r.seller}
+                                <div className="small muted">
+                                  ซื้อ {r.times} ครั้ง · รวม {baht(r.qty)} {p.unit ?? ""}
+                                </div>
+                              </td>
+                              <td className="num">{baht(r.avg)}</td>
+                              <td className="num">
+                                {baht(r.last)}
+                                <div className="small muted">{thaiDate(r.lastDate)}</div>
+                              </td>
+                              <td
+                                className="num"
+                                style={{ color: i === 0 ? "var(--ok)" : "var(--danger)" }}
+                              >
+                                {i === 0 ? "ถูกสุด" : `+${baht(diff)} (${pct.toFixed(1)}%)`}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {cmp.saving >= 1 && (
+                    <p className="small mt-2" style={{ color: "var(--ok)" }}>
+                      💡 ถ้าซื้อจาก {cmp.rows[0].seller} ทั้งหมดในปริมาณเท่าเดิม
+                      จะประหยัดได้ราว <strong>{baht(cmp.saving)} บาท</strong>
+                    </p>
+                  )}
+                </details>
+              )}
+
               {hist.length > 0 && (
                 <details className="mt-2">
                   <summary className="muted small" style={{ cursor: "pointer" }}>
@@ -231,7 +342,7 @@ export default function ProductsPage() {
                               )}
                             </td>
                             <td className="num">{baht(itemUnitCost(h, basis))}</td>
-                            <td className="num">{baht(h.amount)}</td>
+                            <td className="num">{baht(itemAmount(h, basis))}</td>
                           </tr>
                         ))}
                       </tbody>

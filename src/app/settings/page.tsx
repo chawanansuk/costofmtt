@@ -12,6 +12,7 @@ import {
   exportBackup,
   importBackup,
   clearAllData,
+  shrinkAllImages,
 } from "@/lib/export";
 
 export default function SettingsPage() {
@@ -249,6 +250,7 @@ export default function SettingsPage() {
         <div className="card-title">สำรอง / ย้ายเครื่อง</div>
         <p className="muted small" style={{ marginBottom: 10 }}>
           ไฟล์สำรอง (JSON) รวมข้อมูลและรูปภาพทั้งหมด ใช้กู้คืนหรือย้ายไปเครื่องใหม่ได้
+          — รูปที่สแกนใหม่จะถูกเก็บแบบย่อ (1600px) อยู่แล้ว ส่วนใบเก่ากดปุ่มย่อได้
         </p>
         {storageInfo && (
           <p className="muted small" style={{ marginBottom: 10 }}>
@@ -266,6 +268,22 @@ export default function SettingsPage() {
           </p>
         )}
         <div className="stack">
+          <button
+            className="btn btn-secondary btn-block"
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                const r = await shrinkAllImages();
+                setMsg(
+                  r.done === 0
+                    ? "รูปทั้งหมดเล็กพออยู่แล้ว ไม่มีอะไรต้องย่อ"
+                    : `ย่อรูปแล้ว ${r.done} ใบ ประหยัดพื้นที่ ${r.savedMB.toFixed(1)} MB`
+                );
+              })
+            }
+          >
+            🗜️ ย่อรูปเอกสารเก่าให้เล็กลง
+          </button>
           <button
             className="btn btn-secondary btn-block"
             disabled={busy}

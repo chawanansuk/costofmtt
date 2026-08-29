@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { compressImage, type CompressedImage } from "@/lib/image";
 import type { ExtractResponse, ExtractedReceipt } from "@/lib/types";
-import { findDuplicate, findRelated } from "@/lib/db";
+import { findDuplicate, findRelated, deleteReceipt } from "@/lib/db";
 import { addReceipt } from "@/lib/save";
 import { recordUsage } from "@/lib/usage";
 import { DOC_TYPE_LABEL, thaiDate } from "@/lib/format";
@@ -23,7 +23,10 @@ export default function ScanPage() {
   const [savedCount, setSavedCount] = useState(0);
   const [extracted, setExtracted] = useState<ExtractedReceipt | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+  const [duplicate, setDuplicate] = useState<{
+    message: string;
+    receiptId: number | null;
+  } | null>(null);
 
   const current = queue[index] ?? null;
 
@@ -50,7 +53,7 @@ export default function ScanPage() {
 
   async function extractAt(imgs: CompressedImage[], i: number) {
     const img = imgs[i];
-    setDuplicateWarning(null);
+    setDuplicate(null);
     setExtracted(null);
     setPhase("extracting");
     try {
@@ -77,9 +80,10 @@ export default function ScanPage() {
 
       const dup = await findDuplicate(data.seller.tax_id, data.doc_number);
       if (dup) {
-        setDuplicateWarning(
-          `อาจเป็นใบซ้ำ: เลขที่ ${dup.docNumber} ของ ${dup.sellerName ?? "ผู้ขายรายนี้"} ถูกบันทึกไว้แล้ว`
-        );
+        setDuplicate({
+          message: `อาจเป็นใบซ้ำ: เลขที่ ${dup.docNumber} ของ ${dup.sellerName ?? "ผู้ขายรายนี้"} ถูกบันทึกไว้แล้ว`,
+          receiptId: dup.id ?? null,
+        });
       } else {
         // ใบส่งของชั่วคราว/ใบเสนอขาย มักมีใบกำกับภาษีจริงตามมา — เช็คยอด+ผู้ขายซ้ำ
         const related = await findRelated(
@@ -89,11 +93,13 @@ export default function ScanPage() {
           data.doc_date
         );
         if (related) {
-          setDuplicateWarning(
-            `อาจเป็นรายการเดียวกับ ${DOC_TYPE_LABEL[related.documentType]} ` +
+          setDuplicate({
+            message:
+              `อาจเป็นรายการเดียวกับ ${DOC_TYPE_LABEL[related.documentType]} ` +
               `ของ ${related.sellerName ?? "ผู้ขายรายนี้"} ยอด ${related.total.toLocaleString("th-TH")} บาท ` +
-              `(${thaiDate(related.docDate)}) ที่บันทึกไว้แล้ว — ถ้าใบนี้คือใบกำกับภาษีที่ออกตามมา แนะนำให้ลบใบเดิมทิ้ง`
-          );
+              `(${thaiDate(related.docDate)}) ที่บันทึกไว้แล้ว — ถ้าใบนี้คือใบกำกับภาษีที่ออกตามมา แนะนำให้ลบใบเดิมทิ้ง`,
+            receiptId: related.id ?? null,
+          });
         }
       }
       setPhase("review");
@@ -139,7 +145,7 @@ export default function ScanPage() {
     setSavedCount(0);
     setExtracted(null);
     setError(null);
-    setDuplicateWarning(null);
+    setDuplicate(null);
   }
 
   return (
@@ -247,7 +253,13 @@ export default function ScanPage() {
             key={index}
             initial={extracted}
             saving={phase === "saving"}
-            duplicateWarning={duplicateWarning}
+            duplicateWarning={duplicate?.message ?? null}
+            duplicateReceiptId={duplicate?.receiptId ?? null}
+            onDeleteDuplicate={async () => {
+              if (duplicate?.receiptId == null) return;
+              await deleteReceipt(duplicate.receiptId);
+              setDuplicate(null);
+            }}
             onSave={handleSave}
             onCancel={() => (queue.length > 1 ? goNext(false) : reset())}
             cancelLabel={queue.length > 1 ? "ข้ามใบนี้" : "ยกเลิก"}

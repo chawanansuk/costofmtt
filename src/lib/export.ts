@@ -184,3 +184,28 @@ export async function clearAllData() {
     await db.usage.clear();
   });
 }
+
+// ย่อรูปเอกสารเก่าที่เก็บความละเอียดเต็มไว้ ให้เหลือขนาดเก็บถาวร
+export async function shrinkAllImages(): Promise<{
+  done: number;
+  savedMB: number;
+}> {
+  const { shrinkStoredImage } = await import("./image");
+  const receipts = await db.receipts.toArray();
+  let done = 0;
+  let saved = 0;
+  for (const r of receipts) {
+    if (!r.imageBlob || r.id == null) continue;
+    let smaller: Blob | null = null;
+    try {
+      smaller = await shrinkStoredImage(r.imageBlob);
+    } catch {
+      continue; // รูปเสีย/เปิดไม่ได้ ข้ามไป ไม่ให้ทั้งชุดล้ม
+    }
+    if (!smaller) continue;
+    saved += r.imageBlob.size - smaller.size;
+    await db.receipts.update(r.id, { imageBlob: smaller, imageType: "image/jpeg" });
+    done += 1;
+  }
+  return { done, savedMB: saved / 1048576 };
+}

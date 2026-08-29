@@ -20,6 +20,9 @@ interface Props {
   initial: ExtractedReceipt;
   saving?: boolean;
   duplicateWarning?: string | null;
+  // ใบเดิมที่สงสัยว่าซ้ำ — ให้ลบทิ้งได้จากตรงนี้เลย ไม่ต้องไปตามหาในหน้าเอกสาร
+  duplicateReceiptId?: number | null;
+  onDeleteDuplicate?: () => void | Promise<void>;
   onSave: (data: ExtractedReceipt) => void;
   onCancel: () => void;
   cancelLabel?: string;
@@ -41,6 +44,8 @@ export default function ReceiptForm({
   initial,
   saving,
   duplicateWarning,
+  duplicateReceiptId,
+  onDeleteDuplicate,
   onSave,
   onCancel,
   cancelLabel = "ยกเลิก",
@@ -207,7 +212,32 @@ export default function ReceiptForm({
       )}
 
       {duplicateWarning && (
-        <div className="alert alert-danger">⚠️ {duplicateWarning}</div>
+        <div className="alert alert-danger">
+          ⚠️ {duplicateWarning}
+          {duplicateReceiptId != null && (
+            <div className="row mt-2">
+              <a
+                className="btn btn-secondary btn-sm"
+                href={`/receipts/${duplicateReceiptId}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                ดูใบเดิม
+              </a>
+              {onDeleteDuplicate && (
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={() => {
+                    if (!confirm("ลบใบเดิมทิ้ง? รายการสินค้าของใบนั้นจะถูกลบด้วย")) return;
+                    onDeleteDuplicate();
+                  }}
+                >
+                  ลบใบเดิมทิ้ง
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {priceAlerts.length > 0 && (
