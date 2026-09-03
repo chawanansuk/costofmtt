@@ -4,7 +4,7 @@ import { guardRequest, anthropicErrorResponse } from "@/lib/apiguard";
 
 export const maxDuration = 60;
 
-const MODEL = process.env.EXTRACT_MODEL || "claude-opus-4-8";
+const MODEL = process.env.EXTRACT_MODEL || "claude-opus-5";
 const MAX_QUESTION = 500;
 const MAX_SUMMARY = 400_000; // ~100k tokens เผื่อร้านที่ข้อมูลเยอะ
 

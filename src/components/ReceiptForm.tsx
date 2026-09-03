@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import type { ExtractedReceipt, LineItem, CostCategory } from "@/lib/types";
-import { validateExtraction, normalizeItemName } from "@/lib/validate";
+import { validateExtraction, normalizeItemName, checkLineItems } from "@/lib/validate";
 import {
   billDiscountFactor,
   summarizeExtracted,
@@ -55,6 +55,14 @@ export default function ReceiptForm({
   const [data, setData] = useState<ExtractedReceipt>(initial);
   const basis = useCostBasis();
   const validation = useMemo(() => validateExtraction(data), [data]);
+  // ปัญหารายบรรทัด — ให้ผู้ใช้ตรวจเฉพาะบรรทัดที่น่าสงสัย
+  const lineIssues = useMemo(() => checkLineItems(data), [data]);
+  const issueByIndex = useMemo(() => {
+    const m = new Map<number, (typeof lineIssues)[number]>();
+    for (const i of lineIssues) if (!m.has(i.index)) m.set(i.index, i);
+    return m;
+  }, [lineIssues]);
+  const errorLines = lineIssues.filter((i) => i.level === "error").length;
 
   const itemsSum = data.line_items.reduce((s, it) => s + (it.amount ?? 0), 0);
   const discountFactor = billDiscountFactor(data);
@@ -434,6 +442,12 @@ export default function ReceiptForm({
             + เพิ่มรายการ
           </button>
         </div>
+        {errorLines > 0 && (
+          <div className="alert alert-warn mt-2 small">
+            ⚠️ มี {errorLines} รายการที่อ่านไม่ครบหรือตัวเลขไม่สอดคล้อง (แถวสีเหลือง) —
+            เทียบกับรูปต้นฉบับแล้วแก้ก่อนบันทึก ไม่งั้นต้นทุนต่อหน่วยจะผิด
+          </div>
+        )}
         <div className="table-wrap mt-3">
           <table className="data">
             <thead>
@@ -448,8 +462,16 @@ export default function ReceiptForm({
               </tr>
             </thead>
             <tbody>
-              {data.line_items.map((it, i) => (
-                <tr key={i}>
+              {data.line_items.map((it, i) => {
+                const issue = issueByIndex.get(i);
+                const rowBg =
+                  issue?.level === "error"
+                    ? "var(--warn-soft)"
+                    : issue?.level === "info"
+                    ? "var(--surface-2)"
+                    : undefined;
+                return (
+                <tr key={i} style={rowBg ? { background: rowBg } : undefined}>
                   <td>
                     <input
                       style={{ width: "100%", minWidth: 150 }}
@@ -457,6 +479,18 @@ export default function ReceiptForm({
                       value={it.description}
                       onChange={(e) => setItem(i, { description: e.target.value })}
                     />
+                    {issue && (
+                      <div
+                        className="small"
+                        style={{
+                          marginTop: 4,
+                          color: issue.level === "error" ? "var(--warn)" : "var(--text-dim)",
+                        }}
+                      >
+                        {issue.level === "error" ? "⚠️ " : "ℹ️ "}
+                        {issue.message}
+                      </div>
+                    )}
                   </td>
                   <td>
                     <input
@@ -517,7 +551,8 @@ export default function ReceiptForm({
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

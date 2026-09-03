@@ -46,7 +46,8 @@ function toDataUrl(blob: Blob): Promise<string> {
 }
 
 export async function compressImage(file: File): Promise<CompressedImage> {
-  const bitmap = await createImageBitmap(file);
+  // หมุนตาม EXIF เสมอ — รูปจากกล้องมือถือมักเก็บแนวตั้งเป็น metadata ถ้าไม่หมุน AI จะได้รูปนอน
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   try {
     const full = await drawToBlob(bitmap, MAX_EDGE, QUALITY);
     const archive = await drawToBlob(bitmap, ARCHIVE_EDGE, ARCHIVE_QUALITY);

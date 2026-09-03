@@ -125,6 +125,7 @@ export function buildReceiptFields(
 // ต้นทุนจริงต่อหน่วยต้องเอาจำนวนแถมไปหารด้วย ไม่งั้นจะสูงเกินจริง
 // (จ่าย 66,880 ได้ 80+20 = 100 โหล → 668.80/โหล ไม่ใช่ 836.00/โหล)
 const FREEBIE_MARK = /\(\s*(แถม|ของแถม|ฟรี|free)\s*\)|ของแถม|แถมฟรี/gi;
+const FREEBIE_TEST = /\(\s*(แถม|ของแถม|ฟรี|free)\s*\)|ของแถม|แถมฟรี/i; // ไม่มี g — ใช้ test ได้ปลอดภัย
 
 /** ตัดคำว่า (แถม) ออกจากชื่อ เพื่อจับคู่กับบรรทัดที่จ่ายเงินของสินค้าเดียวกัน */
 export function baseItemName(description: string): string {
@@ -135,17 +136,22 @@ export function baseItemName(description: string): string {
 
 /** รหัสสินค้านำหน้าชื่อ เช่น "13-091102 แปรงเตารีด…" → "13-091102" */
 function productCode(description: string): string | null {
-  const m = description.trim().match(/^([A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)+)/);
-  return m ? m[1] : null;
+  const m = description.trim().match(/^([A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)+)(?=\s|$)/);
+  // สั้นกว่า 5 ตัวมักเป็นขนาด เช่น "1/2" นิ้ว หรือ "2-3" ไม่ใช่รหัสสินค้า
+  return m && m[1].length >= 5 ? m[1] : null;
 }
 
 export function lineAmount(it: LineItem): number {
   return it.amount ?? (it.unit_price != null ? it.unit_price * (it.quantity ?? 1) : 0);
 }
 
-/** บรรทัดของแถม = มีจำนวนแต่ไม่มีราคา */
+/** บรรทัดของแถม = มีจำนวน และราคาเป็น 0 "ชัดเจน" หรือมีคำว่าแถม
+ *  (ถ้าราคาเป็น null เพราะอ่านไม่ออก ไม่ใช่ของแถม — ต้องให้ผู้ใช้กรอก) */
 export function isFreebieLine(it: LineItem): boolean {
-  return (it.quantity ?? 0) > 0 && lineAmount(it) <= 0;
+  if ((it.quantity ?? 0) <= 0) return false;
+  const explicitZero = it.amount === 0 || (it.amount == null && it.unit_price === 0);
+  const marked = FREEBIE_TEST.test(it.description);
+  return (explicitZero || marked) && lineAmount(it) <= 0;
 }
 
 export interface MergedLine {

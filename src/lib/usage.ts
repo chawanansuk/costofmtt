@@ -1,7 +1,7 @@
 import { db } from "./db";
 import type { UsageRecord } from "./types";
 
-// ราคา Claude Opus 4.8 ต่อ 1 ล้าน token (USD) — ปรับได้ถ้าเปลี่ยนโมเดล
+// ราคา Claude Opus 5 / 4.8 ต่อ 1 ล้าน token (USD) — ปรับได้ถ้าเปลี่ยนโมเดล
 export const PRICE_USD_PER_MTOK = { input: 5, output: 25 };
 // อัตราแลกเปลี่ยนโดยประมาณสำหรับแสดงผลเป็นเงินบาท
 export const USD_TO_THB = 36;
@@ -17,7 +17,7 @@ export function costTHB(u: { inputTokens: number; outputTokens: number }): numbe
 export async function recordUsage(
   kind: UsageRecord["kind"],
   usage: { input_tokens: number; output_tokens: number } | undefined,
-  model = "claude-opus-4-8"
+  model = "claude-opus-5"
 ): Promise<void> {
   if (!usage) return;
   try {

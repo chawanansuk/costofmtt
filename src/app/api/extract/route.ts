@@ -1,13 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { ExtractedReceipt, ExtractResponse, Party, LineItem } from "@/lib/types";
-import { validateExtraction } from "@/lib/validate";
+import { validateExtraction, checkLineItems } from "@/lib/validate";
 import { guardRequest, anthropicErrorResponse } from "@/lib/apiguard";
 
 // เติมโครงสร้างที่ขาดด้วยค่าปลอดภัย — กันแอปพังถ้าโมเดลไม่ส่งบางฟิลด์ (ไม่ strict แล้ว)
 const s = (v: unknown): string | null =>
   typeof v === "string" && v.trim() !== "" ? v : null;
-const n = (v: unknown): number | null => (typeof v === "number" && !Number.isNaN(v) ? v : null);
+const n = (v: unknown): number | null => {
+  if (typeof v === "number") return Number.isNaN(v) ? null : v;
+  // โมเดลบางครั้งส่งตัวเลขมาเป็นข้อความ เช่น "1,200.00" หรือ "๔๐" — แปลงให้
+  if (typeof v === "string") {
+    const thai = "๐๑๒๓๔๕๖๗๘๙";
+    const cleaned = v
+      .replace(/[๐-๙]/g, (d) => String(thai.indexOf(d)))
+      .replace(/[,\s฿]/g, "")
+      .trim();
+    if (cleaned === "" || !/^-?\d*\.?\d+$/.test(cleaned)) return null;
+    const num = Number(cleaned);
+    return Number.isNaN(num) ? null : num;
+  }
+  return null;
+};
 const party = (v: unknown): Party => {
   const o = (v ?? {}) as Record<string, unknown>;
   return { name: s(o.name), tax_id: s(o.tax_id), branch: s(o.branch), address: s(o.address) };
@@ -61,7 +75,10 @@ function normalizeExtracted(input: unknown): ExtractedReceipt {
 
 export const maxDuration = 60;
 
-const MODEL = process.env.EXTRACT_MODEL || "claude-opus-4-8";
+// Opus 5: ราคาเท่า 4.8 แต่อ่านตารางตัวเลขแม่นกว่า และคิดก่อนตอบ (adaptive thinking) เป็นค่าเริ่มต้น
+const MODEL = process.env.EXTRACT_MODEL || "claude-opus-5";
+// อ่านซ้ำได้อีกกี่รอบเมื่อยอดไม่กระทบกัน (แต่ละรอบเสียค่า AI เพิ่ม 1 ครั้ง)
+const MAX_REPAIR_PASSES = 1;
 const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 // จำกัด payload ~8MB (base64 พองขึ้น ~33% จากไฟล์จริง)
 const MAX_BASE64_LENGTH = 11_000_000;
@@ -81,7 +98,11 @@ const SYSTEM_PROMPT = `คุณคือระบบอ่านข้อมู
 11. สถานะการจ่ายเงิน (paid): true ถ้ามีตราประทับ/ข้อความ "จ่ายเงินแล้ว/ชำระแล้ว/เงินสด(จ่ายแล้ว)", false ถ้าเป็นเครดิต/ระบุวันครบกำหนดและไม่มีหลักฐานว่าจ่ายแล้ว, null ถ้าไม่ทราบ และ due_date = วันครบกำหนดชำระ/กำหนดชำระ ถ้ามี
 12. จัดหมวดหมู่ต้นทุนให้แต่ละรายการ (category): "raw_material" = วัตถุดิบ/ส่วนผสมที่นำไปผลิต, "merchandise" = สินค้าสำเร็จรูปซื้อมาขายต่อ, "packaging" = บรรจุภัณฑ์ ถุง กล่อง, "supplies" = วัสดุสิ้นเปลือง ของใช้ในร้าน, "equipment" = อุปกรณ์/เครื่องมือ/เครื่องใช้, "shipping" = ค่าขนส่ง, "utilities" = ค่าน้ำ ไฟ เน็ต โทรศัพท์, "service_other" = ค่าบริการหรืออื่นๆ ถ้าไม่แน่ใจให้เลือก service_other
 13. confidence: "high" = ภาพชัด อ่านได้ครบ, "medium" = อ่านได้ส่วนใหญ่แต่บางจุดไม่แน่ใจ, "low" = ภาพมัว/ลายมืออ่านยาก/ไม่แน่ใจหลายจุด — บิลเขียนมือให้ไม่เกิน "medium" เสมอ
-14. warnings เขียนเป็นภาษาไทยสั้นๆ`;
+14. warnings เขียนเป็นภาษาไทยสั้นๆ
+15. **อ่านหัวคอลัมน์ก่อน** แล้วจับคู่ให้ถูก: จำนวน/Qty → quantity, หน่วย/Unit → unit, ราคา/หน่วย/Price → unit_price, จำนวนเงิน/รวม/Amount → amount ห้ามสลับคอลัมน์ ถ้าบิลไม่มีคอลัมน์หน่วย ให้ดึงหน่วยที่ติดมากับจำนวน (เช่น "40 โหล" → quantity 40, unit "โหล") quantity ต้องเป็นตัวเลขล้วนเสมอ
+16. ชื่อสินค้าที่ยาวจนขึ้นบรรทัดใหม่ในบิล ให้รวมเป็นรายการเดียว ห้ามแยกเป็นสองรายการ และห้ามสร้างรายการที่ไม่มีในภาพ
+17. ตรวจ**ทีละบรรทัด**ก่อนตอบ: quantity × unit_price ควร ≈ amount ถ้าไม่ตรงและบรรทัดนั้นไม่มีส่วนลด ให้กลับไปอ่านตัวเลขบรรทัดนั้นซ้ำ (ตัวที่มักอ่านผิด: 1↔7, 0↔6↔8, 3↔8, จุดทศนิยม, เลขหลักพันที่มี comma) amount ต้องไม่มากกว่า quantity × unit_price
+18. ถ้าอ่านจำนวนหรือราคาของบรรทัดใดไม่ออกจริงๆ ให้ใส่ null และบอกใน warnings ว่าบรรทัดไหน ห้ามเดาตัวเลข`;
 
 const EXTRACT_TOOL: Anthropic.Tool = {
   name: "record_receipt",
@@ -195,61 +216,108 @@ export async function POST(req: NextRequest) {
 
   const client = new Anthropic();
 
-  try {
+  const imageBlock: Anthropic.ImageBlockParam = {
+    type: "image",
+    source: { type: "base64", media_type: mt, data: image },
+  };
+  const hint =
+    buyerHint && typeof buyerHint === "string" && buyerHint.length <= 200
+      ? ` — ชื่อร้านผู้ซื้อ (ร้านของเรา) คือ "${buyerHint}" ถ้าพบชื่อนี้ในเอกสารให้เป็น buyer เสมอ ห้ามเป็น seller`
+      : "";
+
+  // เรียกโมเดลหนึ่งรอบ คืนข้อมูลที่ normalize แล้ว + token ที่ใช้
+  async function extractOnce(instruction: string) {
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 16000,
+      thinking: { type: "adaptive" },
       system: SYSTEM_PROMPT,
       tools: [EXTRACT_TOOL],
       tool_choice: { type: "tool", name: "record_receipt" },
       messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: { type: "base64", media_type: mt, data: image },
-            },
-            {
-              type: "text",
-              text:
-                "อ่านข้อมูลจากภาพเอกสารการค้านี้ แล้วเรียก record_receipt" +
-                (buyerHint && typeof buyerHint === "string" && buyerHint.length <= 200
-                  ? ` — ชื่อร้านผู้ซื้อ (ร้านของเรา) คือ "${buyerHint}" ถ้าพบชื่อนี้ในเอกสารให้เป็น buyer เสมอ ห้ามเป็น seller`
-                  : ""),
-            },
-          ],
-        },
+        { role: "user", content: [imageBlock, { type: "text", text: instruction }] },
       ],
     });
-
     const toolUse = response.content.find(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
     );
-    if (!toolUse) {
+    return {
+      data: toolUse ? normalizeExtracted(toolUse.input) : null,
+      truncated: response.stop_reason === "max_tokens",
+      usage: response.usage,
+    };
+  }
+
+  // สรุปปัญหาที่ตรวจพบ เพื่อป้อนกลับให้โมเดลอ่านซ้ำเฉพาะจุด
+  function describeProblems(data: ExtractedReceipt): string[] {
+    const v = validateExtraction(data);
+    const lines = checkLineItems(data)
+      .filter((i) => i.level === "error")
+      .map((i) => `บรรทัดที่ ${i.index + 1} "${data.line_items[i.index]?.description ?? ""}": ${i.message}`);
+    const out = [...lines];
+    if (v.itemsSumOk === false) {
+      const itemsSum = data.line_items.reduce((a, it) => a + (it.amount ?? 0), 0);
+      out.push(
+        `ผลรวม amount ทุกบรรทัด = ${itemsSum.toFixed(2)} ไม่สอดคล้องกับ subtotal ${data.subtotal ?? "null"} / discount ${data.discount ?? "null"} / vat_amount ${data.vat_amount ?? "null"} / total ${data.total ?? "null"} (ต้องได้ ผลรวมรายการ − discount ≈ subtotal และ subtotal + vat_amount ≈ total)`
+      );
+    }
+    if (v.totalMathOk === false) out.push("subtotal / discount / vat_amount / total ไม่กระทบกัน");
+    return out;
+  }
+
+  try {
+    let pass = await extractOnce("อ่านข้อมูลจากภาพเอกสารการค้านี้ แล้วเรียก record_receipt" + hint);
+    let inputTokens = pass.usage.input_tokens;
+    let outputTokens = pass.usage.output_tokens;
+    if (!pass.data) {
       return NextResponse.json(
         { error: "AI ไม่สามารถอ่านข้อมูลจากภาพนี้ได้ กรุณาลองใหม่" },
         { status: 502 }
       );
     }
+    let data = pass.data;
+    let truncated = pass.truncated;
 
-    const data = normalizeExtracted(toolUse.input);
+    // รอบซ่อม: ถ้ายอดไม่กระทบกันหรือมีบรรทัดที่อ่านไม่ครบ ให้โมเดลดูภาพซ้ำพร้อมบอกจุดที่ผิด
+    // (เฉพาะใบที่มีปัญหาเท่านั้น ใบที่อ่านถูกตั้งแต่แรกไม่เสียค่าใช้จ่ายเพิ่ม)
+    let repaired = false;
+    for (let i = 0; i < MAX_REPAIR_PASSES && !truncated; i++) {
+      const problems = describeProblems(data);
+      if (problems.length === 0) break;
+      const retry = await extractOnce(
+        "อ่านข้อมูลจากภาพเอกสารการค้านี้ แล้วเรียก record_receipt" + hint +
+          "\n\nการอ่านรอบแรกได้ผลดังนี้ (JSON):\n" + JSON.stringify(data) +
+          "\n\nแต่ตรวจพบความไม่สอดคล้อง:\n- " + problems.join("\n- ") +
+          "\n\nกรุณาดูภาพซ้ำอย่างละเอียด ตรวจว่าอ่านถูกคอลัมน์ ถูกบรรทัด และตัวเลขแต่ละหลักถูกต้อง " +
+          "โดยเฉพาะจุดที่ระบุข้างต้น แล้วเรียก record_receipt ใหม่ด้วยข้อมูลที่ถูกต้อง " +
+          "ถ้าตัวเลขในภาพเป็นแบบนั้นจริงและกระทบกันไม่ได้จริงๆ ให้คงค่าเดิมและอธิบายใน warnings"
+      );
+      inputTokens += retry.usage.input_tokens;
+      outputTokens += retry.usage.output_tokens;
+      if (!retry.data || retry.truncated) break;
+      // ใช้ผลรอบใหม่เฉพาะเมื่อดีขึ้นจริง (ปัญหาน้อยลง) ไม่งั้นคงรอบแรกไว้
+      if (describeProblems(retry.data).length < problems.length) {
+        data = retry.data;
+        repaired = true;
+      }
+    }
+
     // ใบที่มีรายการเยอะมากอาจถูกตัดกลางคัน — เตือนให้ผู้ใช้ตรวจว่ารายการครบ
-    if (response.stop_reason === "max_tokens") {
+    if (truncated) {
       data.warnings.push(
         "เอกสารมีรายการเยอะมาก ข้อมูลอาจถูกตัดไม่ครบ กรุณาตรวจสอบรายการสินค้าให้ครบถ้วน"
       );
       data.confidence = "low";
+    }
+    if (repaired) {
+      data.warnings.push("AI อ่านซ้ำรอบสองเพื่อแก้ยอดที่ไม่กระทบกัน — กรุณาตรวจตัวเลขอีกครั้ง");
     }
     const validation = validateExtraction(data);
 
     const result: ExtractResponse = {
       data,
       validation,
-      usage: {
-        input_tokens: response.usage.input_tokens,
-        output_tokens: response.usage.output_tokens,
-      },
+      usage: { input_tokens: inputTokens, output_tokens: outputTokens },
     };
     return NextResponse.json(result);
   } catch (err) {
