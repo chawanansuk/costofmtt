@@ -161,7 +161,7 @@ export default function ReceiptDetailPage({
             {thaiDate(receipt.docDate)} · {DOC_TYPE_LABEL[receipt.documentType]}
           </p>
         </div>
-        <div className="row">
+        <div className="row" style={{ gap: "var(--space-2)" }}>
           <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}>
             แก้ไข
           </button>
@@ -171,9 +171,9 @@ export default function ReceiptDetailPage({
         </div>
       </div>
 
-      {saveMsg && <div className="alert alert-ok mt-2">✓ {saveMsg}</div>}
+      {saveMsg && <div className="alert alert-ok mt-3">✓ {saveMsg}</div>}
 
-      <div className="row wrap mt-2" style={{ gap: 6 }}>
+      <div className="row wrap mt-3" style={{ gap: "var(--space-2)" }}>
         {receipt.paid === false && (
           <span className="badge badge-danger">
             ค้างจ่าย{receipt.dueDate ? ` · ครบกำหนด ${thaiDate(receipt.dueDate)}` : ""}
@@ -198,120 +198,179 @@ export default function ReceiptDetailPage({
         </span>
       </div>
 
-      <div className="card mt-3">
-        <div className="card-title">ข้อมูลเอกสาร</div>
-        <table className="data">
-          <tbody>
-            <tr><td className="muted">เลขที่เอกสาร</td><td className="num">{receipt.docNumber ?? "—"}</td></tr>
-            <tr><td className="muted">เลขผู้เสียภาษีผู้ขาย</td><td className="num">{receipt.sellerTaxId ?? "—"}</td></tr>
-            <tr><td className="muted">สาขา</td><td className="num">{receipt.sellerBranch ?? "—"}</td></tr>
-            <tr><td className="muted">ผู้ซื้อ</td><td className="num">{receipt.buyerName ?? "—"}</td></tr>
-            {receipt.paymentMethod && (
-              <tr><td className="muted">วิธีชำระเงิน</td><td className="num">{receipt.paymentMethod}</td></tr>
-            )}
-            {receipt.notes && (
-              <tr><td className="muted">หมายเหตุ</td><td className="num">{receipt.notes}</td></tr>
-            )}
-          </tbody>
-        </table>
+      <div className="card mt-4">
+        <div className="row spread">
+          <span className="card-title" style={{ marginBottom: 0 }}>ยอดสุทธิที่จ่ายจริง</span>
+          <span
+            className="num"
+            style={{ fontSize: "var(--fs-h1)", lineHeight: "var(--lh-h1)", fontWeight: 700 }}
+          >
+            {baht(money.total)} ฿
+          </span>
+        </div>
       </div>
+
+      <div className="grid-2 mt-4">
+        <div>
 
       {items && items.length > 0 && (
-        <div className="card mt-3">
-          <div className="card-title">
-            รายการสินค้า{" "}
-            <span className="small muted" style={{ fontWeight: 400 }}>
-              (ต้นทุน{COST_BASIS_LABEL[basis]})
-            </span>
-          </div>
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>รายการ</th>
-                  <th className="num">จำนวน</th>
-                  <th className="num">ราคา/หน่วย</th>
-                  <th className="num">รวม</th>
-                </tr>
-              </thead>
-              <tbody>
+            <div className="card">
+              <div className="card-head">
+                <span className="card-title">รายการสินค้า · {items.length} รายการ</span>
+                <span className="card-action">ต้นทุน{COST_BASIS_LABEL[basis]}</span>
+              </div>
+
+              {/* เดสก์ท็อป: ตาราง */}
+              <div className="table-wrap only-desktop">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>รายการ</th>
+                      <th className="num">จำนวน</th>
+                      <th className="num">ต้นทุน/หน่วย</th>
+                      <th className="num">รวม</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((it) => (
+                      <tr key={it.id}>
+                        <td>
+                          {it.description}
+                          {it.category && (
+                            <div className="mt-2">
+                              <span className="badge badge-neutral">{CATEGORY_LABEL[it.category]}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="num">
+                          {it.quantity} {it.unit ?? ""}
+                          {it.freeQuantity ? (
+                            <div className="caption" style={{ color: "var(--state-success)" }}>
+                              + แถม {it.freeQuantity} {it.unit ?? ""}
+                            </div>
+                          ) : null}
+                          {it.isFreebie && (
+                            <div className="caption" style={{ color: "var(--state-success)" }}>ของแถม</div>
+                          )}
+                        </td>
+                        <td className="num" style={{ fontWeight: 600 }}>
+                          {baht(itemUnitCost(it, basis))}
+                          {basis === "inc" && it.unitPriceIncVat != null && (
+                            <div className="caption">ก่อน VAT {baht(it.unitPrice)}</div>
+                          )}
+                        </td>
+                        <td className="num" style={{ fontWeight: 600 }}>{baht(itemAmount(it, basis))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* มือถือ: การ์ดต่อรายการ — เห็นตัวเลขครบโดยไม่ต้องเลื่อนแนวนอน */}
+              <div className="only-mobile">
                 {items.map((it) => (
-                  <tr key={it.id}>
-                    <td>
-                      {it.description}
-                      {it.category && (
-                        <div>
-                          <span className="badge badge-neutral">
-                            {CATEGORY_LABEL[it.category]}
+                  <div key={it.id} className="item-card" style={{ boxShadow: "none" }}>
+                    <div className="name">{it.description}</div>
+                    <div className="figs">
+                      <div className="fig">
+                        <span className="k">จำนวน</span>
+                        <span className="v">{it.quantity} {it.unit ?? ""}</span>
+                        {it.freeQuantity ? (
+                          <span className="sub" style={{ color: "var(--state-success)" }}>
+                            + แถม {it.freeQuantity}
                           </span>
-                        </div>
-                      )}
-                    </td>
-                    <td className="num">
-                      {it.quantity} {it.unit ?? ""}
-                      {it.freeQuantity ? (
-                        <div className="small" style={{ color: "var(--ok)" }}>
-                          + แถม {it.freeQuantity} {it.unit ?? ""}
-                        </div>
-                      ) : null}
-                      {it.isFreebie && (
-                        <div className="small" style={{ color: "var(--ok)" }}>ของแถม</div>
-                      )}
-                    </td>
-                    <td className="num">
-                      {baht(itemUnitCost(it, basis))}
-                      {basis === "inc" && it.unitPriceIncVat != null && (
-                        <div className="small muted">ก่อน VAT {baht(it.unitPrice)}</div>
-                      )}
-                    </td>
-                    <td className="num">{baht(itemAmount(it, basis))}</td>
-                  </tr>
+                        ) : null}
+                        {it.isFreebie && (
+                          <span className="sub" style={{ color: "var(--state-success)" }}>ของแถม</span>
+                        )}
+                      </div>
+                      <div className="fig">
+                        <span className="k">ต้นทุน/หน่วย</span>
+                        <span className="v cost">{baht(itemUnitCost(it, basis))}</span>
+                        {basis === "inc" && it.unitPriceIncVat != null && (
+                          <span className="sub">ก่อน VAT {baht(it.unitPrice)}</span>
+                        )}
+                      </div>
+                      <div className="fig">
+                        <span className="k">รวม</span>
+                        <span className="v">{baht(itemAmount(it, basis))}</span>
+                      </div>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card-title">ยอดเงิน</div>
+            <div className="kv">
+              {money.discount > 0 && (
+                <>
+                  <div className="kv-row">
+                    <span className="k">ราคาสินค้า (ก่อนลด)</span>
+                    <span className="v">{baht(money.gross)} ฿</span>
+                  </div>
+                  <div className="kv-row">
+                    <span className="k">ส่วนลดท้ายบิล</span>
+                    <span className="v neg">−{baht(money.discount)} ฿</span>
+                  </div>
+                </>
+              )}
+              <div className="kv-row">
+                <span className="k">ยอดก่อน VAT</span>
+                <span className="v">{baht(money.netBeforeVat)} ฿</span>
+              </div>
+              <div className="kv-row">
+                <span className="k">VAT</span>
+                <span className="v">{baht(money.vat)} ฿</span>
+              </div>
+              <div className="kv-row total">
+                <span className="k">ยอดสุทธิ</span>
+                <span className="v">{baht(money.total)} ฿</span>
+              </div>
+            </div>
           </div>
         </div>
-      )}
 
-      <div className="card mt-3">
-        <div className="card-title">ยอดเงิน</div>
-        <table className="data">
-          <tbody>
-            {money.discount > 0 && (
-              <>
-                <tr><td className="muted">ราคาสินค้า (ก่อนลด)</td><td className="num">{baht(money.gross)} ฿</td></tr>
-                <tr><td className="muted">ส่วนลดท้ายบิล</td><td className="num">-{baht(money.discount)} ฿</td></tr>
-              </>
-            )}
-            <tr><td className="muted">ยอดก่อน VAT</td><td className="num">{baht(money.netBeforeVat)} ฿</td></tr>
-            <tr><td className="muted">VAT</td><td className="num">{baht(money.vat)} ฿</td></tr>
-            <tr>
-              <td style={{ fontWeight: 700 }}>ยอดสุทธิ</td>
-              <td className="num" style={{ fontWeight: 700, fontSize: "1.05rem" }}>
-                {baht(money.total)} ฿
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        {/* ---------- คอลัมน์ข้าง ---------- */}
+        <div>
+          <div className="card">
+            <div className="card-title">ข้อมูลเอกสาร</div>
+            <div className="kv">
+              <div className="kv-row"><span className="k">เลขที่เอกสาร</span><span className="v">{receipt.docNumber ?? "—"}</span></div>
+              <div className="kv-row"><span className="k">วันที่</span><span className="v">{thaiDate(receipt.docDate)}</span></div>
+              <div className="kv-row"><span className="k">เลขผู้เสียภาษีผู้ขาย</span><span className="v">{receipt.sellerTaxId ?? "—"}</span></div>
+              <div className="kv-row"><span className="k">สาขา</span><span className="v">{receipt.sellerBranch ?? "—"}</span></div>
+              <div className="kv-row"><span className="k">ผู้ซื้อ</span><span className="v">{receipt.buyerName ?? "—"}</span></div>
+              {receipt.paymentMethod && (
+                <div className="kv-row"><span className="k">วิธีชำระเงิน</span><span className="v">{receipt.paymentMethod}</span></div>
+              )}
+              {receipt.notes && (
+                <div className="kv-row"><span className="k">หมายเหตุ</span><span className="v">{receipt.notes}</span></div>
+              )}
+            </div>
+          </div>
+
+          {receipt.warnings.length > 0 && (
+            <div className="alert alert-warn">
+              <strong>ข้อสังเกตตอนสแกน:</strong>
+              <ul>
+                {receipt.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {imageUrl && (
+            <div className="card">
+              <div className="card-title">รูปต้นฉบับ</div>
+              <img src={imageUrl} alt="ใบกำกับภาษีต้นฉบับ" className="preview-img" />
+            </div>
+          )}
+        </div>
       </div>
-
-      {receipt.warnings.length > 0 && (
-        <div className="alert alert-warn mt-3">
-          <strong>ข้อสังเกตตอนสแกน:</strong>
-          <ul>
-            {receipt.warnings.map((w, i) => (
-              <li key={i}>{w}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {imageUrl && (
-        <div className="card mt-3">
-          <div className="card-title">รูปต้นฉบับ</div>
-          <img src={imageUrl} alt="ใบกำกับภาษีต้นฉบับ" className="preview-img" />
-        </div>
-      )}
     </div>
   );
 }

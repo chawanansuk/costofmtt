@@ -5,7 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import { summarizeUsage, PRICE_USD_PER_MTOK, USD_TO_THB } from "@/lib/usage";
 import { baht } from "@/lib/format";
-import { COST_BASIS_KEY, readCostBasis, type CostBasis } from "@/lib/costbasis";
+import { setCostBasis, readCostBasis, type CostBasis } from "@/lib/costbasis";
 import {
   exportReceiptsCsv,
   exportItemsCsv,
@@ -29,7 +29,7 @@ export default function SettingsPage() {
   const usageRecords = useLiveQuery(() => db.usage.toArray(), []);
   const ai = usageRecords ? summarizeUsage(usageRecords) : null;
 
-  const [costBasis, setCostBasis] = useState<CostBasis>("inc");
+  const [costBasis, setBasisState] = useState<CostBasis>("inc");
   const [passcode, setPasscode] = useState("");
   const [myShop, setMyShop] = useState("");
   const [storageInfo, setStorageInfo] = useState<{
@@ -38,7 +38,7 @@ export default function SettingsPage() {
   } | null>(null);
   useEffect(() => {
     setPasscode(localStorage.getItem("costsnap:passcode") ?? "");
-    setCostBasis(readCostBasis());
+    setBasisState(readCostBasis());
     setMyShop(localStorage.getItem("costsnap:myshop") ?? "");
     (async () => {
       try {
@@ -64,8 +64,8 @@ export default function SettingsPage() {
     setErr(null);
   }
   function pickCostBasis(v: CostBasis) {
+    setBasisState(v);
     setCostBasis(v);
-    localStorage.setItem(COST_BASIS_KEY, v);
     setErr(null);
     setMsg(
       v === "inc"
@@ -163,20 +163,27 @@ export default function SettingsPage() {
           (ยอดเงินของใบเอกสารไม่เปลี่ยน) ระบบเก็บไว้ทั้งสองแบบ สลับได้ตลอด
           ไม่ต้องสแกนใหม่
         </p>
-        <div className="stack">
+        <div className="seg seg-block" role="group" aria-label="ฐานการคิดต้นทุน">
           <button
-            className={`btn btn-block ${costBasis === "inc" ? "btn-primary" : "btn-secondary"}`}
+            className={`seg-item ${costBasis === "inc" ? "active" : ""}`}
+            aria-pressed={costBasis === "inc"}
             onClick={() => pickCostBasis("inc")}
           >
-            {costBasis === "inc" ? "✓ " : ""}รวม VAT — เงินที่จ่ายจริง
+            รวม VAT
           </button>
           <button
-            className={`btn btn-block ${costBasis === "ex" ? "btn-primary" : "btn-secondary"}`}
+            className={`seg-item ${costBasis === "ex" ? "active" : ""}`}
+            aria-pressed={costBasis === "ex"}
             onClick={() => pickCostBasis("ex")}
           >
-            {costBasis === "ex" ? "✓ " : ""}ก่อน VAT — สำหรับร้านที่ขอคืนภาษีซื้อ
+            ก่อน VAT
           </button>
         </div>
+        <p className="caption mt-2">
+          {costBasis === "inc"
+            ? "รวม VAT = เงินที่จ่ายจริงต่อหน่วย"
+            : "ก่อน VAT = สำหรับร้านที่ขอคืนภาษีซื้อได้"}
+        </p>
         <p className="muted small mt-2">
           ถ้าร้านจดทะเบียน VAT และนำภาษีซื้อไปหักในแบบ ภ.พ.30 ได้
           VAT จะไม่ใช่ต้นทุนจริง ควรเลือก &quot;ก่อน VAT&quot; ไม่งั้นจะคิดต้นทุนสูงเกินไป 7%

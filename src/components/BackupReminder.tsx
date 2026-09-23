@@ -40,7 +40,7 @@ export default function BackupReminder() {
           </div>
         </div>
         <button
-          className="btn btn-primary btn-sm"
+          className="btn btn-secondary btn-sm"
           disabled={busy}
           onClick={async () => {
             setBusy(true);

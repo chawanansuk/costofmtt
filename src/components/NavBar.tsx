@@ -2,30 +2,24 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { NAV_TABS, isActiveTab } from "@/lib/nav";
 
-const TABS = [
-  { href: "/", icon: "🏠", label: "หน้าหลัก" },
-  { href: "/receipts", icon: "🧾", label: "เอกสาร" },
-  { href: "/scan", icon: "📷", label: "สแกน", cta: true },
-  { href: "/products", icon: "📦", label: "สินค้า" },
-  { href: "/settings", icon: "⚙️", label: "ตั้งค่า" },
-];
-
+// แถบเมนูล่าง — แสดงเฉพาะจอเล็กกว่า 1024px (ซ่อนด้วย CSS เมื่อมีเมนูด้านข้าง)
 export default function NavBar() {
   const pathname = usePathname();
   return (
     <nav className="navbar">
       <div className="navbar-inner">
-        {TABS.map((t) => {
-          const active =
-            t.href === "/" ? pathname === "/" : pathname.startsWith(t.href);
+        {NAV_TABS.map((t) => {
+          const active = isActiveTab(t.href, pathname);
           return (
             <Link
               key={t.href}
               href={t.href}
+              aria-current={active ? "page" : undefined}
               className={`nav-item ${t.cta ? "scan-cta" : ""} ${active ? "active" : ""}`}
             >
-              <span className="ico">{t.icon}</span>
+              <span className="ico" aria-hidden="true">{t.icon}</span>
               <span>{t.label}</span>
             </Link>
           );

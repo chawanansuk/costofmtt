@@ -5,6 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import { baht, thaiDate, CATEGORY_LABEL, isCostDocument } from "@/lib/format";
 import {
+  setCostBasis,
   useCostBasis,
   itemUnitCost,
   itemAmount,
@@ -182,13 +183,41 @@ export default function ProductsPage() {
         <div>
           <h1>ต้นทุนต่อสินค้า</h1>
           <p className="page-sub">
-            รวมจากรายการในใบกำกับภาษีทั้งหมด {products?.length ?? 0} รายการ ·
-            ต้นทุน<strong>{COST_BASIS_LABEL[basis]}</strong> (เปลี่ยนได้ในหน้าตั้งค่า)
+            {products?.length ?? 0} รายการ · ต้นทุน{COST_BASIS_LABEL[basis]}
           </p>
+        </div>
+        <div className="seg only-desktop">
+          <button
+            className={`seg-item ${basis === "inc" ? "active" : ""}`}
+            onClick={() => setCostBasis("inc")}
+          >
+            รวม VAT
+          </button>
+          <button
+            className={`seg-item ${basis === "ex" ? "active" : ""}`}
+            onClick={() => setCostBasis("ex")}
+          >
+            ก่อน VAT
+          </button>
         </div>
       </div>
 
-      <div className="row mt-2">
+      <div className="seg seg-block only-mobile mt-2">
+        <button
+          className={`seg-item ${basis === "inc" ? "active" : ""}`}
+          onClick={() => setCostBasis("inc")}
+        >
+          รวม VAT
+        </button>
+        <button
+          className={`seg-item ${basis === "ex" ? "active" : ""}`}
+          onClick={() => setCostBasis("ex")}
+        >
+          ก่อน VAT
+        </button>
+      </div>
+
+      <div className="row mt-3">
         <div className="field" style={{ flex: 1 }}>
           <input
             placeholder="ค้นหาสินค้า/วัตถุดิบ"
@@ -215,33 +244,56 @@ export default function ProductsPage() {
         </div>
       )}
 
-      <div className="stack mt-4">
+      {filtered.length > 0 && (
+        <div className="product-colhead only-desktop mt-4">
+          <span>สินค้า</span>
+          <span>ต้นทุนเฉลี่ย</span>
+          <span>ซื้อรวม</span>
+          <span>ยอดซื้อรวม</span>
+        </div>
+      )}
+
+      <div className="stack mt-3">
         {filtered.map((p) => {
           const priceChanged =
             p.buyCount > 1 && Math.abs(p.maxPrice - p.minPrice) > 0.005;
           const hist = history.get(p.key) ?? [];
           const cmp = sellerCompare.get(p.key);
           return (
-            <div key={p.key} className="card">
-              <div className="row spread">
-                <div className="title" style={{ fontWeight: 600 }}>
-                  {p.name}
+            <div key={p.key} className="card product-card">
+              <div className="product-head">
+              <div className="name">{p.name}</div>
+
+              {/* ตัวเลขหลัก 3 ตัว — เดสก์ท็อปเรียงเป็นคอลัมน์ตรงกันทุกการ์ด */}
+              <div className="figs">
+                <div className="fig">
+                  <span className="k">ต้นทุนเฉลี่ย</span>
+                  <span className="v cost" style={{ fontSize: "var(--fs-h2)", lineHeight: "var(--lh-h2)" }}>
+                    {baht(p.avgUnitCost)}
+                  </span>
+                  <span className="sub">บาท/{p.unit ?? "หน่วย"}</span>
                 </div>
-                <div className="amount">{baht(p.totalSpent)} ฿</div>
+                <div className="fig">
+                  <span className="k">ซื้อรวม</span>
+                  <span className="v">
+                    {p.totalQty.toLocaleString("th-TH")} {p.unit ?? ""}
+                  </span>
+                  <span className="sub">{p.buyCount} ครั้ง</span>
+                </div>
+                <div className="fig">
+                  <span className="k">ยอดซื้อรวม</span>
+                  <span className="v">{baht(p.totalSpent)} ฿</span>
+                  <span className="sub">ล่าสุด {thaiDate(p.lastDate)}</span>
+                </div>
               </div>
-              <div className="muted small mt-2">
-                ซื้อ {p.buyCount} ครั้ง · รวม {p.totalQty.toLocaleString("th-TH")}{" "}
-                {p.unit ?? "หน่วย"} · ล่าสุด {thaiDate(p.lastDate)}
               </div>
-              <div className="row wrap mt-2" style={{ gap: 6 }}>
+
+              <div className="row wrap mt-3" style={{ gap: "var(--space-2)" }}>
                 {p.category && (
                   <span className="badge badge-neutral">
                     {CATEGORY_LABEL[p.category] ?? p.category}
                   </span>
                 )}
-                <span className="badge badge-neutral">
-                  เฉลี่ย {baht(p.avgUnitCost)} ฿/{p.unit ?? "หน่วย"}
-                </span>
                 <span className="badge badge-accent">
                   ล่าสุด {baht(p.lastPrice)} ฿
                 </span>
@@ -260,7 +312,45 @@ export default function ProductsPage() {
                     🏷️ เทียบราคา {cmp.rows.length} เจ้า — ถูกสุด{" "}
                     {cmp.rows[0].seller} ({baht(cmp.rows[0].avg)} ฿)
                   </summary>
-                  <div className="table-wrap mt-2">
+                  {/* มือถือ: แยกเป็นการ์ดต่อผู้ขาย — ตาราง 4 คอลัมน์แคบเกินอ่านบนจอ 390px */}
+                  <div className="only-mobile mt-3">
+                    {cmp.rows.map((r, i) => {
+                      const diff = r.avg - cmp.rows[0].avg;
+                      const pct = cmp.rows[0].avg > 0 ? (diff / cmp.rows[0].avg) * 100 : 0;
+                      return (
+                        <div key={r.seller} className="item-card" style={{ boxShadow: "none" }}>
+                          <div className="name">
+                            {i === 0 ? "🥇 " : ""}
+                            {r.seller}
+                          </div>
+                          <div className="figs">
+                            <div className="fig">
+                              <span className="k">เฉลี่ย/{p.unit ?? "หน่วย"}</span>
+                              <span className="v cost">{baht(r.avg)}</span>
+                              <span className="sub">ซื้อ {r.times} ครั้ง · {baht(r.qty)} {p.unit ?? ""}</span>
+                            </div>
+                            <div className="fig">
+                              <span className="k">ล่าสุด</span>
+                              <span className="v">{baht(r.last)}</span>
+                              <span className="sub">{thaiDate(r.lastDate)}</span>
+                            </div>
+                            <div className="fig">
+                              <span className="k">แพงกว่าถูกสุด</span>
+                              <span
+                                className="v"
+                                style={{ color: i === 0 ? "var(--state-success)" : "var(--state-error)" }}
+                              >
+                                {i === 0 ? "ถูกสุด" : `+${baht(diff)}`}
+                              </span>
+                              {i > 0 && <span className="sub">{pct.toFixed(1)}%</span>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="table-wrap only-desktop mt-2">
                     <table className="data">
                       <thead>
                         <tr>

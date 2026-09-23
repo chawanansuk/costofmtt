@@ -10,6 +10,17 @@ import type { ItemRecord } from "./types";
 export type CostBasis = "inc" | "ex";
 
 export const COST_BASIS_KEY = "costsnap:costBasis";
+// storage event ยิงเฉพาะข้ามแท็บ — ใช้ event ของเราเองให้แท็บปัจจุบันอัปเดตด้วย
+const COST_BASIS_EVENT = "costsnap:costbasis-changed";
+
+export function setCostBasis(basis: CostBasis): void {
+  try {
+    localStorage.setItem(COST_BASIS_KEY, basis);
+  } catch {
+    // เบราว์เซอร์บล็อก localStorage — เปลี่ยนได้เฉพาะในหน้านี้
+  }
+  window.dispatchEvent(new CustomEvent(COST_BASIS_EVENT));
+}
 
 export function readCostBasis(): CostBasis {
   try {
@@ -26,7 +37,11 @@ export function useCostBasis(): CostBasis {
     setBasis(readCostBasis());
     const onChange = () => setBasis(readCostBasis());
     window.addEventListener("storage", onChange);
-    return () => window.removeEventListener("storage", onChange);
+    window.addEventListener(COST_BASIS_EVENT, onChange);
+    return () => {
+      window.removeEventListener("storage", onChange);
+      window.removeEventListener(COST_BASIS_EVENT, onChange);
+    };
   }, []);
   return basis;
 }

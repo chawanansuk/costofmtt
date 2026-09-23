@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import NavBar from "@/components/NavBar";
+import SideNav from "@/components/SideNav";
 import SwRegister from "@/components/SwRegister";
 
 export const metadata: Metadata = {
@@ -35,7 +36,10 @@ export default function RootLayout({
       </head>
       <body>
         <div className="app-shell">
-          <main className="app-main">{children}</main>
+          <SideNav />
+          <div className="app-body">
+            <main className="app-main">{children}</main>
+          </div>
           <NavBar />
         </div>
         <SwRegister />

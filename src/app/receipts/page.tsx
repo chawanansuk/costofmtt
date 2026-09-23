@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
-import { baht, thaiDate, monthKey, DOC_TYPE_LABEL } from "@/lib/format";
+import { baht, thaiDate, monthKey, DOC_TYPE_LABEL, isCostDocument } from "@/lib/format";
 
 function ReceiptsList() {
   const params = useSearchParams();
@@ -46,6 +46,21 @@ function ReceiptsList() {
 
   const sum = filtered.reduce((s, r) => s + r.total, 0);
 
+  const badgesFor = (r: (typeof filtered)[number]) => (
+    <>
+      {r.paid === false && (
+        <span className="badge badge-danger">
+          ค้างจ่าย{r.dueDate ? ` · ${thaiDate(r.dueDate)}` : ""}
+        </span>
+      )}
+      {r.vatClaimable && <span className="badge badge-ok">ขอคืน VAT ได้</span>}
+      {!isCostDocument(r.documentType) && (
+        <span className="badge badge-neutral">ไม่นับเป็นต้นทุน</span>
+      )}
+      {r.confidence === "low" && <span className="badge badge-warn">ควรตรวจทาน</span>}
+    </>
+  );
+
   return (
     <div>
       <div className="page-header">
@@ -55,91 +70,137 @@ function ReceiptsList() {
             {filtered.length} ใบ · รวม {baht(sum)} บาท
           </p>
         </div>
-        <Link href="/scan" className="btn btn-primary btn-sm">
-          + สแกน
+        <Link href="/scan" className="btn btn-primary">
+          📷 สแกนใบกำกับภาษี
         </Link>
       </div>
 
-      {justSaved && <div className="alert alert-ok mt-2">✓ บันทึกเรียบร้อยแล้ว</div>}
+      {justSaved && <div className="alert alert-ok mt-3">✓ บันทึกเรียบร้อยแล้ว</div>}
 
+      {/* ---------- ตัวกรอง ---------- */}
       <div className="row mt-3">
         <div className="field" style={{ flex: 1 }}>
           <input
             placeholder="ค้นหาผู้ขาย / เลขที่เอกสาร"
+            aria-label="ค้นหาผู้ขายหรือเลขที่เอกสาร"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="field" style={{ width: 130 }}>
-          <select value={month} onChange={(e) => setMonth(e.target.value)}>
+        <div className="field" style={{ width: 150 }}>
+          <select value={month} onChange={(e) => setMonth(e.target.value)} aria-label="กรองตามเดือน">
             <option value="">ทุกเดือน</option>
             {months.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
+              <option key={m} value={m}>{m}</option>
             ))}
           </select>
         </div>
-      </div>
-
-      <div className="row mt-2">
-        <div className="field" style={{ flex: 1 }}>
-          <select value={docType} onChange={(e) => setDocType(e.target.value)}>
+        <div className="field only-desktop" style={{ width: 200 }}>
+          <select value={docType} onChange={(e) => setDocType(e.target.value)} aria-label="กรองตามประเภทเอกสาร">
             <option value="">ทุกประเภทเอกสาร</option>
             {Object.entries(DOC_TYPE_LABEL).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
+              <option key={k} value={k}>{v}</option>
             ))}
           </select>
         </div>
-        <button
-          className={`btn btn-sm ${vatOnly ? "btn-primary" : "btn-secondary"}`}
-          onClick={() => setVatOnly((v) => !v)}
-        >
-          {vatOnly ? "✓ " : ""}ขอคืน VAT ได้
-        </button>
-        <button
-          className={`btn btn-sm ${unpaidOnly ? "btn-primary" : "btn-secondary"}`}
-          onClick={() => setUnpaidOnly((v) => !v)}
-        >
-          {unpaidOnly ? "✓ " : ""}ค้างจ่าย
-        </button>
       </div>
 
-      <div className="mt-4">
-        {receipts && filtered.length === 0 && (
-          <div className="empty">
-            <div className="big">🧾</div>
-            <p>ยังไม่มีเอกสาร{search || month ? "ที่ตรงเงื่อนไข" : ""}</p>
-            {!search && !month && (
-              <Link href="/scan" className="btn btn-primary mt-3">
-                📷 สแกนใบแรกเลย
-              </Link>
-            )}
+      <div className="chip-row mt-3">
+        <button
+          className={`chip ${vatOnly ? "active" : ""}`}
+          aria-pressed={vatOnly}
+          onClick={() => setVatOnly((v) => !v)}
+        >
+          ขอคืน VAT ได้
+        </button>
+        <button
+          className={`chip ${unpaidOnly ? "active" : ""}`}
+          aria-pressed={unpaidOnly}
+          onClick={() => setUnpaidOnly((v) => !v)}
+        >
+          ค้างจ่าย
+        </button>
+        <div className="field only-mobile" style={{ flex: 1, minWidth: 150 }}>
+          <select value={docType} onChange={(e) => setDocType(e.target.value)} aria-label="กรองตามประเภทเอกสาร">
+            <option value="">ทุกประเภทเอกสาร</option>
+            {Object.entries(DOC_TYPE_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {receipts && filtered.length === 0 && (
+        <div className="empty card mt-4">
+          <div className="big">🧾</div>
+          <p>ยังไม่มีเอกสาร{search || month || docType || vatOnly || unpaidOnly ? "ที่ตรงเงื่อนไข" : ""}</p>
+          {!search && !month && (
+            <Link href="/scan" className="btn btn-primary mt-4">
+              📷 สแกนใบแรกเลย
+            </Link>
+          )}
+        </div>
+      )}
+
+      {/* ---------- เดสก์ท็อป: ตาราง เทียบข้ามใบได้ ---------- */}
+      {filtered.length > 0 && (
+        <div className="card only-desktop mt-4" style={{ padding: "var(--space-2)" }}>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>ผู้ขาย</th>
+                  <th>วันที่</th>
+                  <th>ประเภท</th>
+                  <th>สถานะ</th>
+                  <th className="num">ยอดสุทธิ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => (
+                  <tr key={r.id}>
+                    <td>
+                      <Link href={`/receipts/${r.id}`} style={{ fontWeight: 600 }}>
+                        {r.sellerName ?? "(ไม่ระบุผู้ขาย)"}
+                      </Link>
+                      {r.docNumber && <div className="caption">เลขที่ {r.docNumber}</div>}
+                    </td>
+                    <td className="muted" style={{ whiteSpace: "nowrap" }}>{thaiDate(r.docDate)}</td>
+                    <td className="muted">{DOC_TYPE_LABEL[r.documentType]}</td>
+                    <td>
+                      <div className="row wrap" style={{ gap: "var(--space-2)" }}>{badgesFor(r)}</div>
+                    </td>
+                    <td className="num" style={{ fontWeight: 600, fontSize: "var(--fs-h4)" }}>
+                      {baht(r.total)} ฿
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
+        </div>
+      )}
+
+      {/* ---------- มือถือ: การ์ด แตะง่าย อ่านครบ ---------- */}
+      <div className="only-mobile mt-4">
         {filtered.map((r) => (
-          <Link key={r.id} href={`/receipts/${r.id}`} className="list-item">
-            <div style={{ minWidth: 0 }}>
-              <div className="title">{r.sellerName ?? "(ไม่ระบุผู้ขาย)"}</div>
-              <div className="meta">
-                {thaiDate(r.docDate)} · {DOC_TYPE_LABEL[r.documentType]}
-                {r.docNumber ? ` · เลขที่ ${r.docNumber}` : ""}
+          <Link key={r.id} href={`/receipts/${r.id}`} className="item-card" style={{ display: "block", color: "inherit" }}>
+            <div className="row top spread">
+              <div style={{ minWidth: 0 }}>
+                <div className="name">{r.sellerName ?? "(ไม่ระบุผู้ขาย)"}</div>
+                <div className="caption mt-2">
+                  {thaiDate(r.docDate)} · {DOC_TYPE_LABEL[r.documentType]}
+                  {r.docNumber ? ` · ${r.docNumber}` : ""}
+                </div>
               </div>
-              <div className="row wrap mt-2" style={{ gap: 6 }}>
-                {r.paid === false && (
-                  <span className="badge badge-danger">
-                    ค้างจ่าย{r.dueDate ? ` · ${thaiDate(r.dueDate)}` : ""}
-                  </span>
-                )}
-                {r.vatClaimable && <span className="badge badge-ok">ขอคืน VAT ได้</span>}
-                {r.confidence === "low" && (
-                  <span className="badge badge-warn">ควรตรวจทาน</span>
-                )}
+              <div
+                className="num"
+                style={{ fontWeight: 600, fontSize: "var(--fs-h3)", whiteSpace: "nowrap" }}
+              >
+                {baht(r.total)} ฿
               </div>
             </div>
-            <div className="amount">{baht(r.total)} ฿</div>
+            <div className="row wrap mt-3" style={{ gap: "var(--space-2)" }}>{badgesFor(r)}</div>
           </Link>
         ))}
       </div>
