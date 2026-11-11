@@ -73,7 +73,11 @@ function normalizeExtracted(input: unknown): ExtractedReceipt {
   };
 }
 
-export const maxDuration = 60;
+// โมเดลที่เปิด adaptive thinking ใช้เวลาราว 30–90 วินาทีต่อรอบกับบิลรายการเยอะ และอาจมีรอบซ่อมอีกรอบ
+// 60 วินาทีเดิมไม่พอ — Vercel ตัดกลางคัน ผู้ใช้เห็นแค่ error ว่าอ่านรูปไม่ได้ (Fluid compute บน Hobby ตั้งได้ถึง 300)
+export const maxDuration = 300;
+// เริ่มรอบซ่อมเฉพาะเมื่อรอบแรกเสร็จเร็วพอ ไม่งั้นรอบซ่อมจะลากจนเกินเวลาแล้วเสียผลรอบแรกที่อ่านได้ไปด้วย
+const REPAIR_START_DEADLINE_MS = 130_000;
 
 // Opus 5: ราคาเท่า 4.8 แต่อ่านตารางตัวเลขแม่นกว่า และคิดก่อนตอบ (adaptive thinking) เป็นค่าเริ่มต้น
 const MODEL = process.env.EXTRACT_MODEL || "claude-opus-5";
@@ -265,6 +269,7 @@ export async function POST(req: NextRequest) {
     return out;
   }
 
+  const startedAt = Date.now();
   try {
     let pass = await extractOnce("อ่านข้อมูลจากภาพเอกสารการค้านี้ แล้วเรียก record_receipt" + hint);
     let inputTokens = pass.usage.input_tokens;
@@ -281,7 +286,11 @@ export async function POST(req: NextRequest) {
     // รอบซ่อม: ถ้ายอดไม่กระทบกันหรือมีบรรทัดที่อ่านไม่ครบ ให้โมเดลดูภาพซ้ำพร้อมบอกจุดที่ผิด
     // (เฉพาะใบที่มีปัญหาเท่านั้น ใบที่อ่านถูกตั้งแต่แรกไม่เสียค่าใช้จ่ายเพิ่ม)
     let repaired = false;
-    for (let i = 0; i < MAX_REPAIR_PASSES && !truncated; i++) {
+    for (
+      let i = 0;
+      i < MAX_REPAIR_PASSES && !truncated && Date.now() - startedAt < REPAIR_START_DEADLINE_MS;
+      i++
+    ) {
       const problems = describeProblems(data);
       if (problems.length === 0) break;
       const retry = await extractOnce(

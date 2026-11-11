@@ -1,12 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { compressImage, type CompressedImage } from "@/lib/image";
 import type { ExtractResponse, ExtractedReceipt } from "@/lib/types";
 import { findDuplicate, findRelated, deleteReceipt } from "@/lib/db";
 import { addReceipt } from "@/lib/save";
 import { recordUsage } from "@/lib/usage";
+import { postApi } from "@/lib/api";
 import { DOC_TYPE_LABEL, thaiDate } from "@/lib/format";
 import ReceiptForm from "@/components/ReceiptForm";
 
@@ -23,6 +24,14 @@ export default function ScanPage() {
   const [savedCount, setSavedCount] = useState(0);
   const [extracted, setExtracted] = useState<ExtractedReceipt | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // นับเวลาที่รอ AI — บิลยาวใช้เวลาเป็นนาที ถ้าไม่มีตัวเลขขยับผู้ใช้จะนึกว่าค้าง
+  const [waited, setWaited] = useState(0);
+  useEffect(() => {
+    if (phase !== "extracting") return;
+    setWaited(0);
+    const t = setInterval(() => setWaited((w) => w + 1), 1000);
+    return () => clearInterval(t);
+  }, [phase]);
   const [duplicate, setDuplicate] = useState<{
     message: string;
     receiptId: number | null;
@@ -57,24 +66,16 @@ export default function ScanPage() {
     setExtracted(null);
     setPhase("extracting");
     try {
-      const savedPasscode = localStorage.getItem("costsnap:passcode");
       const myShop = localStorage.getItem("costsnap:myshop");
-      const res = await fetch("/api/extract", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(savedPasscode ? { "x-app-passcode": savedPasscode } : {}),
-        },
-        body: JSON.stringify({
+      const { data, usage } = await postApi<ExtractResponse>(
+        "/api/extract",
+        {
           image: img.base64,
           mediaType: img.mediaType,
           ...(myShop ? { buyerHint: myShop } : {}),
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "อ่านข้อมูลไม่สำเร็จ");
-
-      const { data, usage } = json as ExtractResponse;
+        },
+        "อ่านข้อมูลไม่สำเร็จ"
+      );
       setExtracted(data);
       await recordUsage("extract", usage);
 
@@ -234,7 +235,7 @@ export default function ScanPage() {
             <p className="muted mt-3">
               {phase === "preparing"
                 ? "กำลังเตรียมรูป…"
-                : `AI กำลังอ่านข้อมูล${queue.length > 1 ? `ใบที่ ${index + 1}/${queue.length}` : ""}… (ราว 10–30 วินาที)`}
+                : `AI กำลังอ่านข้อมูล${queue.length > 1 ? `ใบที่ ${index + 1}/${queue.length}` : ""}… ${waited} วินาที (บิลยาวอาจใช้ 1–3 นาที อย่าปิดหน้านี้)`}
             </p>
           </div>
           {current && <img src={current.dataUrl} alt="ใบกำกับภาษี" className="preview-img mt-3" />}

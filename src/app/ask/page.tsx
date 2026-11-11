@@ -6,6 +6,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import { buildShopSummary } from "@/lib/summary";
 import { recordUsage } from "@/lib/usage";
+import { postApi } from "@/lib/api";
 
 const EXAMPLES = [
   "เดือนนี้ต้นทุนรวมเท่าไหร่ เทียบเดือนที่แล้วเป็นยังไง",
@@ -32,17 +33,11 @@ export default function AskPage() {
     setAsked(text);
     try {
       const { json } = await buildShopSummary();
-      const passcode = localStorage.getItem("costsnap:passcode");
-      const res = await fetch("/api/ask", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(passcode ? { "x-app-passcode": passcode } : {}),
-        },
-        body: JSON.stringify({ question: text, summary: json }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "ถาม AI ไม่สำเร็จ");
+      const data = await postApi<{ answer: string; usage?: { input_tokens: number; output_tokens: number } }>(
+        "/api/ask",
+        { question: text, summary: json },
+        "ถาม AI ไม่สำเร็จ"
+      );
       setAnswer(data.answer);
       await recordUsage("ask", data.usage);
     } catch (e) {

@@ -9,6 +9,17 @@ const QUALITY = 0.85;
 const ARCHIVE_EDGE = 1600;
 const ARCHIVE_QUALITY = 0.72;
 
+// Vercel ปฏิเสธ request ที่ใหญ่เกิน 4.5MB ก่อนถึงโค้ดเรา — รูปบิลที่มีรายละเอียดเยอะ (กระดาษมีลาย/แสงเงา)
+// ที่ 2560px อาจเกินได้ เผื่อที่ไว้ให้ base64 ไม่เกิน ~3MB แล้วลดคุณภาพทีละขั้นจนกว่าจะพอดี
+const MAX_UPLOAD_BASE64 = 3_000_000;
+const UPLOAD_STEPS: [edge: number, quality: number][] = [
+  [MAX_EDGE, QUALITY],
+  [MAX_EDGE, 0.75],
+  [2200, 0.75],
+  [1900, 0.7],
+  [1600, 0.7],
+];
+
 export interface CompressedImage {
   blob: Blob; // สำเนาสำหรับเก็บลงเครื่อง (เล็ก)
   dataUrl: string; // สำหรับ preview
@@ -16,8 +27,58 @@ export interface CompressedImage {
   mediaType: string;
 }
 
+interface Decoded {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  close: () => void;
+}
+
+function loadViaImgElement(file: Blob): Promise<Decoded> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () =>
+      resolve({
+        source: img,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        close: () => URL.revokeObjectURL(url),
+      });
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("decode failed"));
+    };
+    img.src = url;
+  });
+}
+
+// เบราว์เซอร์บางรุ่น (โดยเฉพาะ iPhone iOS เก่า) ไม่รองรับ option หมุนตาม EXIF ของ createImageBitmap
+// แล้ว throw ทันที — ไล่ลองจากวิธีที่ดีที่สุดลงมา แทนที่จะล้มทั้งการสแกน
+async function decodeImage(file: Blob): Promise<Decoded> {
+  const fromBitmap = (b: ImageBitmap): Decoded => ({
+    source: b,
+    width: b.width,
+    height: b.height,
+    close: () => b.close(),
+  });
+  try {
+    return fromBitmap(await createImageBitmap(file, { imageOrientation: "from-image" }));
+  } catch {}
+  try {
+    return fromBitmap(await createImageBitmap(file)); // เบราว์เซอร์ปัจจุบันหมุนตาม EXIF ให้อยู่แล้ว
+  } catch {}
+  try {
+    return await loadViaImgElement(file); // <img> หมุนตาม EXIF เสมอ
+  } catch {
+    throw new Error(
+      "เปิดไฟล์รูปนี้ไม่ได้ — ถ้าเป็นไฟล์ HEIC ให้ตั้งกล้อง iPhone เป็น \"เข้ากันได้มากที่สุด\" หรือแคปหน้าจอรูปแล้วส่งแทน"
+    );
+  }
+}
+
 function drawToBlob(
-  source: ImageBitmap,
+  source: Decoded,
   maxEdge: number,
   quality: number
 ): Promise<Blob> {
@@ -26,7 +87,7 @@ function drawToBlob(
   canvas.width = Math.round(source.width * scale);
   canvas.height = Math.round(source.height * scale);
   const ctx = canvas.getContext("2d")!;
-  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(source.source, 0, 0, canvas.width, canvas.height);
   return new Promise((resolve, reject) =>
     canvas.toBlob(
       (b) => (b ? resolve(b) : reject(new Error("บีบอัดรูปไม่สำเร็จ"))),
@@ -47,30 +108,34 @@ function toDataUrl(blob: Blob): Promise<string> {
 
 export async function compressImage(file: File): Promise<CompressedImage> {
   // หมุนตาม EXIF เสมอ — รูปจากกล้องมือถือมักเก็บแนวตั้งเป็น metadata ถ้าไม่หมุน AI จะได้รูปนอน
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const img = await decodeImage(file);
   try {
-    const full = await drawToBlob(bitmap, MAX_EDGE, QUALITY);
-    const archive = await drawToBlob(bitmap, ARCHIVE_EDGE, ARCHIVE_QUALITY);
-    const fullUrl = await toDataUrl(full);
+    let base64 = "";
+    for (const [edge, quality] of UPLOAD_STEPS) {
+      const full = await drawToBlob(img, edge, quality);
+      base64 = (await toDataUrl(full)).split(",")[1];
+      if (base64.length <= MAX_UPLOAD_BASE64) break;
+    }
+    const archive = await drawToBlob(img, ARCHIVE_EDGE, ARCHIVE_QUALITY);
     return {
       blob: archive,
       dataUrl: await toDataUrl(archive),
-      base64: fullUrl.split(",")[1],
+      base64,
       mediaType: "image/jpeg",
     };
   } finally {
-    bitmap.close();
+    img.close();
   }
 }
 
 /** ย่อรูปที่เก็บไว้แล้วให้เล็กลง — ใช้กับเอกสารเก่าที่บันทึกรูปความละเอียดเต็มไว้ */
 export async function shrinkStoredImage(blob: Blob): Promise<Blob | null> {
-  const bitmap = await createImageBitmap(blob);
+  const img = await decodeImage(blob);
   try {
-    if (Math.max(bitmap.width, bitmap.height) <= ARCHIVE_EDGE) return null;
-    const smaller = await drawToBlob(bitmap, ARCHIVE_EDGE, ARCHIVE_QUALITY);
+    if (Math.max(img.width, img.height) <= ARCHIVE_EDGE) return null;
+    const smaller = await drawToBlob(img, ARCHIVE_EDGE, ARCHIVE_QUALITY);
     return smaller.size < blob.size ? smaller : null;
   } finally {
-    bitmap.close();
+    img.close();
   }
 }
