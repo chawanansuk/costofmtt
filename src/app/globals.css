@@ -524,6 +524,42 @@ a.kv-row:hover .k { color: var(--brand-primary); }
   max-height: 420px; object-fit: contain; background: #fff;
 }
 
+/* ตารางแก้ไขรายการสินค้าในฟอร์มตรวจทาน (ReceiptForm)
+   จอเล็ก: แปลงแต่ละแถวเป็นการ์ด 2 คอลัมน์ — ตัวเลขที่ต้องเทียบกับบิล (จำนวน/ราคา/รวม) เห็นครบไม่ต้องเลื่อนแนวนอน */
+@media (max-width: 719px) {
+  table.data.items-edit, table.data.items-edit tbody { display: block; }
+  table.data.items-edit thead { display: none; }
+  table.data.items-edit tr {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  }
+  table.data.items-edit tr + tr { margin-top: var(--space-3); }
+  table.data.items-edit td { display: block; padding: 0; border: none; min-width: 0; }
+  table.data.items-edit td.c-name { grid-column: 1 / -1; }
+  table.data.items-edit td[data-label]::before {
+    content: attr(data-label); display: block;
+    font-size: var(--fs-caption); line-height: var(--lh-caption);
+    font-weight: 600; color: var(--text-secondary); margin-bottom: 2px;
+  }
+  table.data.items-edit .cell-input { width: 100% !important; min-width: 0 !important; }
+  table.data.items-edit td.c-del { display: flex; align-items: flex-end; justify-content: flex-end; }
+}
+
+/* รูปต้นฉบับแบบแตะขยาย (ZoomableImage) */
+.zoom-wrap {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: #fff;
+  overflow: auto;
+  max-height: 75vh;
+  -webkit-overflow-scrolling: touch;
+}
+.zoom-wrap img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+.zoom-wrap.zoom-0 img { max-height: 420px; object-fit: contain; }
+.zoom-wrap.zoom-2 img { width: 250%; max-width: none; cursor: zoom-out; }
+
 .alert {
   border-radius: var(--radius-md);
   padding: 14px var(--space-4);

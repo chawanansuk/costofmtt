@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
-import { baht, thaiDate, CATEGORY_LABEL, isCostDocument } from "@/lib/format";
+import { baht, thaiDate, CATEGORY_LABEL, isCostDocument, matchesSearch } from "@/lib/format";
 import {
   setCostBasis,
   useCostBasis,
@@ -49,6 +49,9 @@ export default function ProductsPage() {
   const basis = useCostBasis();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
+  // แสดงทีละชุด — ร้านที่มีสินค้าเป็นพันรายการ ถ้าวาดทุกการ์ดพร้อมประวัติทีเดียวหน้าจะหน่วงมาก
+  const PAGE = 60;
+  const [limit, setLimit] = useState(PAGE);
 
   const products = useMemo(() => {
     if (!items) return null;
@@ -79,7 +82,8 @@ export default function ProductsPage() {
           lastDate: it.docDate,
           minPrice: it.isFreebie ? Infinity : price,
           maxPrice: it.isFreebie ? 0 : price,
-          _lastTs: date,
+          // ของแถมล้วนไม่ใช่ราคาซื้อ — เว้น _lastTs ว่างไว้ ให้รายการที่จ่ายเงินจริงมาแทน "ราคาล่าสุด" ได้เสมอ
+          _lastTs: it.isFreebie ? "" : date,
         });
       } else {
         cur.buyCount += 1;
@@ -169,13 +173,13 @@ export default function ProductsPage() {
 
   const filtered = useMemo(() => {
     if (!products) return [];
-    const q = search.toLowerCase();
     return products.filter((p) => {
       if (category && p.category !== category) return false;
-      if (q && !p.name.toLowerCase().includes(q)) return false;
-      return true;
+      return matchesSearch(p.name, search);
     });
   }, [products, search, category]);
+  const shown = filtered.slice(0, limit);
+  const filtering = search.trim() !== "" || category !== "";
 
   return (
     <div>
@@ -183,7 +187,7 @@ export default function ProductsPage() {
         <div>
           <h1>ต้นทุนต่อสินค้า</h1>
           <p className="page-sub">
-            {products?.length ?? 0} รายการ · ต้นทุน{COST_BASIS_LABEL[basis]}
+            {filtering ? `${filtered.length} จาก ` : ""}{products?.length ?? 0} รายการ · ต้นทุน{COST_BASIS_LABEL[basis]}
           </p>
         </div>
         <div className="seg only-desktop">
@@ -221,12 +225,23 @@ export default function ProductsPage() {
         <div className="field" style={{ flex: 1 }}>
           <input
             placeholder="ค้นหาสินค้า/วัตถุดิบ"
+            aria-label="ค้นหาสินค้า"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setLimit(PAGE);
+            }}
           />
         </div>
         <div className="field" style={{ width: 150 }}>
-          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+          <select
+            aria-label="กรองตามหมวดหมู่"
+            value={category}
+            onChange={(e) => {
+              setCategory(e.target.value);
+              setLimit(PAGE);
+            }}
+          >
             <option value="">ทุกหมวด</option>
             {Object.entries(CATEGORY_LABEL).map(([k, v]) => (
               <option key={k} value={k}>
@@ -240,7 +255,11 @@ export default function ProductsPage() {
       {products && filtered.length === 0 && (
         <div className="empty">
           <div className="big">📦</div>
-          <p>ยังไม่มีข้อมูลสินค้า — สแกนใบกำกับภาษีก่อน</p>
+          <p>
+            {filtering
+              ? "ไม่พบสินค้าที่ตรงกับที่ค้นหา — ลองพิมพ์แค่บางส่วนของชื่อหรือรหัส"
+              : "ยังไม่มีข้อมูลสินค้า — สแกนใบกำกับภาษีก่อน"}
+          </p>
         </div>
       )}
 
@@ -254,7 +273,7 @@ export default function ProductsPage() {
       )}
 
       <div className="stack mt-3">
-        {filtered.map((p) => {
+        {shown.map((p) => {
           const priceChanged =
             p.buyCount > 1 && Math.abs(p.maxPrice - p.minPrice) > 0.005;
           const hist = history.get(p.key) ?? [];
@@ -447,6 +466,15 @@ export default function ProductsPage() {
           );
         })}
       </div>
+
+      {filtered.length > shown.length && (
+        <button
+          className="btn btn-secondary btn-block mt-3"
+          onClick={() => setLimit((n) => n + PAGE)}
+        >
+          แสดงเพิ่ม (เหลืออีก {filtered.length - shown.length} รายการ)
+        </button>
+      )}
     </div>
   );
 }

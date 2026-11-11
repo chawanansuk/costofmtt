@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
-import { baht, thaiDate, monthKey, DOC_TYPE_LABEL, isCostDocument } from "@/lib/format";
+import {
+  baht, thaiDate, monthKey, monthLabel, DOC_TYPE_LABEL, isCostDocument, matchesSearch,
+} from "@/lib/format";
 
 function ReceiptsList() {
   const params = useSearchParams();
@@ -22,6 +24,16 @@ function ReceiptsList() {
     []
   );
 
+  // ชื่อสินค้าในแต่ละใบ — ให้ค้นด้วยชื่อ/รหัสสินค้าแล้วเจอใบที่ซื้อได้
+  const items = useLiveQuery(() => db.items.toArray(), []);
+  const itemText = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const it of items ?? []) {
+      m.set(it.receiptId, `${m.get(it.receiptId) ?? ""} ${it.description}`);
+    }
+    return m;
+  }, [items]);
+
   const months = useMemo(() => {
     if (!receipts) return [];
     const set = new Set(receipts.map((r) => monthKey(r.docDate, r.createdAt)));
@@ -35,16 +47,18 @@ function ReceiptsList() {
       if (docType && r.documentType !== docType) return false;
       if (vatOnly && !r.vatClaimable) return false;
       if (unpaidOnly && r.paid !== false) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        const hay = `${r.sellerName ?? ""} ${r.docNumber ?? ""} ${r.notes ?? ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+      if (search.trim()) {
+        const hay = `${r.sellerName ?? ""} ${r.docNumber ?? ""} ${r.sellerTaxId ?? ""} ${r.notes ?? ""} ${
+          (r.id != null && itemText.get(r.id)) || ""
+        }`;
+        if (!matchesSearch(hay, search)) return false;
       }
       return true;
     });
-  }, [receipts, search, month, docType, vatOnly, unpaidOnly]);
+  }, [receipts, search, month, docType, vatOnly, unpaidOnly, itemText]);
 
-  const sum = filtered.reduce((s, r) => s + r.total, 0);
+  // ยอดรวมไม่นับใบเสนอราคา/ใบยืมสินค้า — ยังไม่ใช่เงินที่จ่าย
+  const sum = filtered.reduce((s, r) => s + (isCostDocument(r.documentType) ? r.total : 0), 0);
 
   const badgesFor = (r: (typeof filtered)[number]) => (
     <>
@@ -81,8 +95,8 @@ function ReceiptsList() {
       <div className="row mt-3">
         <div className="field" style={{ flex: 1 }}>
           <input
-            placeholder="ค้นหาผู้ขาย / เลขที่เอกสาร"
-            aria-label="ค้นหาผู้ขายหรือเลขที่เอกสาร"
+            placeholder="ค้นหาผู้ขาย / เลขที่ / ชื่อสินค้า"
+            aria-label="ค้นหาผู้ขาย เลขที่เอกสาร หรือชื่อสินค้า"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -91,7 +105,7 @@ function ReceiptsList() {
           <select value={month} onChange={(e) => setMonth(e.target.value)} aria-label="กรองตามเดือน">
             <option value="">ทุกเดือน</option>
             {months.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m}>{monthLabel(m)}</option>
             ))}
           </select>
         </div>

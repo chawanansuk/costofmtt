@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { CATEGORY_LABEL, DOC_TYPE_LABEL, monthKey, isCostDocument } from "./format";
+import { CATEGORY_LABEL, DOC_TYPE_LABEL, monthKey, isCostDocument, todayISO } from "./format";
 import { readCostBasis, itemUnitCost, itemAmount, COST_BASIS_LABEL } from "./costbasis";
 
 // สร้าง "สรุปข้อมูลร้าน" แบบกระชับสำหรับส่งให้ AI ตอบคำถาม
@@ -46,14 +46,14 @@ export async function buildShopSummary(): Promise<{
   for (const rc of receipts) {
     const mk = monthKey(rc.docDate, rc.createdAt);
     const m = months.get(mk) ?? { ต้นทุนรวม: 0, จำนวนใบ: 0, vatขอคืนได้: 0 };
-    m.ต้นทุนรวม += rc.total;
+    m.ต้นทุนรวม += basis === "inc" ? rc.total : rc.subtotal;
     m.จำนวนใบ += 1;
     if (rc.vatClaimable) m.vatขอคืนได้ += rc.vatAmount;
     months.set(mk, m);
 
     const name = rc.sellerName ?? "(ไม่ระบุผู้ขาย)";
     const sv = sellers.get(name) ?? { ยอดรวม: 0, จำนวนใบ: 0, ล่าสุด: null };
-    sv.ยอดรวม += rc.total;
+    sv.ยอดรวม += basis === "inc" ? rc.total : rc.subtotal;
     sv.จำนวนใบ += 1;
     if (!sv.ล่าสุด || (rc.docDate ?? "") > sv.ล่าสุด) sv.ล่าสุด = rc.docDate;
     sellers.set(name, sv);
@@ -93,32 +93,36 @@ export async function buildShopSummary(): Promise<{
     const key = `${it.normalizedName}|${it.unit ?? ""}`;
     const d = it.docDate ?? "";
     const cur = products.get(key);
+    // ของแถมล้วน (ราคา 0) นับจำนวนที่ได้รับ แต่ไม่ใช่ราคาซื้อ — ไม่เอาไปคิดราคาล่าสุด/ต่ำสุด/สูงสุด
+    const priced = !it.isFreebie;
     if (!cur) {
       products.set(key, {
         ชื่อ: it.description,
         หน่วย: it.unit,
         หมวด: it.category ? CATEGORY_LABEL[it.category] ?? it.category : null,
-        ครั้งที่ซื้อ: 1,
+        ครั้งที่ซื้อ: priced ? 1 : 0,
         จำนวนรวม: qty,
         ยอดซื้อรวม: spent,
-        ราคาล่าสุด: price,
-        ซื้อล่าสุด: it.docDate,
-        ราคาต่ำสุด: price,
-        ราคาสูงสุด: price,
-        _ts: d,
+        ราคาล่าสุด: priced ? price : NaN,
+        ซื้อล่าสุด: priced ? it.docDate : null,
+        ราคาต่ำสุด: priced ? price : Infinity,
+        ราคาสูงสุด: priced ? price : -Infinity,
+        _ts: priced ? d : "",
       });
     } else {
-      cur.ครั้งที่ซื้อ += 1;
       cur.จำนวนรวม += qty;
       cur.ยอดซื้อรวม += spent;
-      cur.ราคาต่ำสุด = Math.min(cur.ราคาต่ำสุด, price);
-      cur.ราคาสูงสุด = Math.max(cur.ราคาสูงสุด, price);
-      if (d >= cur._ts && !it.isFreebie) {
-        cur._ts = d;
-        cur.ราคาล่าสุด = price;
-        cur.ซื้อล่าสุด = it.docDate;
-        cur.ชื่อ = it.description;
-        cur.หมวด = it.category ? CATEGORY_LABEL[it.category] ?? it.category : cur.หมวด;
+      if (priced) {
+        cur.ครั้งที่ซื้อ += 1;
+        cur.ราคาต่ำสุด = Math.min(cur.ราคาต่ำสุด, price);
+        cur.ราคาสูงสุด = Math.max(cur.ราคาสูงสุด, price);
+        if (d >= cur._ts || Number.isNaN(cur.ราคาล่าสุด)) {
+          cur._ts = d;
+          cur.ราคาล่าสุด = price;
+          cur.ซื้อล่าสุด = it.docDate;
+          cur.ชื่อ = it.description;
+          cur.หมวด = it.category ? CATEGORY_LABEL[it.category] ?? it.category : cur.หมวด;
+        }
       }
     }
   }
@@ -134,16 +138,16 @@ export async function buildShopSummary(): Promise<{
       จำนวนรวม: r2(p.จำนวนรวม),
       ยอดซื้อรวม: r2(p.ยอดซื้อรวม),
       ต้นทุนเฉลี่ยต่อหน่วย: p.จำนวนรวม > 0 ? r2(p.ยอดซื้อรวม / p.จำนวนรวม) : null,
-      ราคาล่าสุด: r2(p.ราคาล่าสุด),
-      ราคาต่ำสุด: r2(p.ราคาต่ำสุด),
-      ราคาสูงสุด: r2(p.ราคาสูงสุด),
+      ราคาล่าสุด: Number.isFinite(p.ราคาล่าสุด) ? r2(p.ราคาล่าสุด) : null,
+      ราคาต่ำสุด: Number.isFinite(p.ราคาต่ำสุด) ? r2(p.ราคาต่ำสุด) : null,
+      ราคาสูงสุด: Number.isFinite(p.ราคาสูงสุด) ? r2(p.ราคาสูงสุด) : null,
       ซื้อล่าสุด: p.ซื้อล่าสุด,
     }));
 
   const payload = {
     หมายเหตุ:
-      `ต้นทุนต่อหน่วยหักส่วนลดท้ายบิลและรวมของแถมในการหารแล้ว เป็นราคา${COST_BASIS_LABEL[basis]} หน่วยเป็นบาท`,
-    วันที่ปัจจุบัน: new Date().toISOString().slice(0, 10),
+      `ต้นทุนต่อหน่วยหักส่วนลดท้ายบิลและรวมของแถมในการหารแล้ว ต้นทุนและยอดซื้อทุกตัวเป็นราคา${COST_BASIS_LABEL[basis]} หน่วยเป็นบาท ส่วนยอดบิลค้างจ่ายเป็นยอดที่ต้องจ่ายจริง (รวม VAT)`,
+    วันที่ปัจจุบัน: todayISO(),
     สรุปรายเดือน: [...months.entries()]
       .sort((a, b) => b[0].localeCompare(a[0]))
       .slice(0, MAX_MONTHS)

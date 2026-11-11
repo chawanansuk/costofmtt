@@ -47,6 +47,8 @@ export default function BackupReminder() {
             try {
               await exportBackup();
               setDismissedAt(Date.now());
+            } catch {
+              alert("สำรองข้อมูลไม่สำเร็จ — ลองอีกครั้งจากหน้า ตั้งค่า");
             } finally {
               setBusy(false);
             }

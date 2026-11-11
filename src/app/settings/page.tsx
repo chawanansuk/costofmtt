@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { summarizeUsage, PRICE_USD_PER_MTOK, USD_TO_THB } from "@/lib/usage";
 import { baht } from "@/lib/format";
 import { setCostBasis, readCostBasis, type CostBasis } from "@/lib/costbasis";
+import { postApi, ApiError } from "@/lib/api";
 import {
   exportReceiptsCsv,
   exportItemsCsv,
@@ -37,9 +38,13 @@ export default function SettingsPage() {
     usageMB: number;
   } | null>(null);
   useEffect(() => {
-    setPasscode(localStorage.getItem("costsnap:passcode") ?? "");
     setBasisState(readCostBasis());
-    setMyShop(localStorage.getItem("costsnap:myshop") ?? "");
+    try {
+      setPasscode(localStorage.getItem("costsnap:passcode") ?? "");
+      setMyShop(localStorage.getItem("costsnap:myshop") ?? "");
+    } catch {
+      // เบราว์เซอร์บล็อก localStorage — ปล่อยช่องว่างไว้
+    }
     (async () => {
       try {
         const persisted = (await navigator.storage?.persisted?.()) ?? false;
@@ -74,15 +79,46 @@ export default function SettingsPage() {
     );
   }
 
-  function savePasscode() {
-    if (passcode.trim()) {
-      localStorage.setItem("costsnap:passcode", passcode.trim());
-      setMsg("บันทึกรหัสผ่านแอปแล้ว");
-    } else {
-      localStorage.removeItem("costsnap:passcode");
-      setMsg("ลบรหัสผ่านแอปออกจากเครื่องนี้แล้ว");
-    }
+  // บันทึกแล้วถามเซิร์ฟเวอร์ทันทีว่ารหัสถูกไหม (ไม่เรียก AI ไม่มีค่าใช้จ่าย)
+  // เดิมต้องรอไปสแกนจริงถึงจะรู้ว่าใส่รหัสผิด
+  async function savePasscode() {
     setErr(null);
+    setMsg(null);
+    const code = passcode.trim();
+    try {
+      if (code) localStorage.setItem("costsnap:passcode", code);
+      else localStorage.removeItem("costsnap:passcode");
+    } catch {
+      setErr("เบราว์เซอร์นี้ไม่ยอมให้บันทึกข้อมูล (อาจเปิดโหมดส่วนตัวอยู่) — บันทึกรหัสไม่ได้");
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await postApi<{ passcodeRequired: boolean }>("/api/check", {}, "ตรวจรหัสไม่สำเร็จ");
+      if (code) {
+        setMsg(
+          r.passcodeRequired
+            ? "รหัสถูกต้อง — เครื่องนี้สแกนและถาม AI ได้แล้ว"
+            : "บันทึกรหัสแล้ว (เซิร์ฟเวอร์นี้ไม่ได้ตั้งรหัสไว้ จึงใช้ได้เลยโดยไม่ต้องใส่)"
+        );
+      } else {
+        setMsg("ลบรหัสออกจากเครื่องนี้แล้ว — เซิร์ฟเวอร์ไม่ได้ตั้งรหัสไว้ ยังใช้งานได้");
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        setErr(
+          code
+            ? "รหัสไม่ตรงกับที่ตั้งไว้บนเซิร์ฟเวอร์ — ตรวจตัวพิมพ์เล็ก-ใหญ่และขีดคั่นแล้วลองใหม่ (เครื่องนี้ยังสแกนไม่ได้)"
+            : "ลบรหัสแล้ว แต่เซิร์ฟเวอร์ตั้งรหัสไว้ — เครื่องนี้จะสแกนและถาม AI ไม่ได้จนกว่าจะใส่รหัส"
+        );
+      } else if (e instanceof ApiError && e.status === 0) {
+        setMsg("บันทึกรหัสแล้ว แต่ยังตรวจกับเซิร์ฟเวอร์ไม่ได้เพราะไม่มีอินเทอร์เน็ต");
+      } else {
+        setErr(e instanceof Error ? e.message : "ตรวจรหัสไม่สำเร็จ");
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function run(fn: () => Promise<unknown>, okMsg?: string) {
@@ -135,23 +171,24 @@ export default function SettingsPage() {
       </div>
 
       <div className="card mt-3">
-        <div className="card-title">รหัสผ่านแอป (สำหรับเซิร์ฟเวอร์ที่ตั้ง APP_PASSCODE)</div>
+        <div className="card-title">รหัสผ่านแอป</div>
         <p className="muted small" style={{ marginBottom: 10 }}>
-          ถ้าผู้ดูแลตั้งรหัสไว้ตอน deploy (env <code>APP_PASSCODE</code>)
-          ให้ใส่รหัสเดียวกันที่นี่ เพื่อป้องกันคนอื่นแอบใช้ AI ของเรา
-          รหัสเก็บอยู่ในเครื่องนี้เท่านั้น
+          ต้องใส่รหัสนี้ทุกเครื่องที่จะสแกนหรือถาม AI — กันคนอื่นที่รู้ลิงก์มาใช้ AI ของร้าน
+          กดบันทึกแล้วระบบจะตรวจให้ทันทีว่ารหัสถูก รหัสเก็บอยู่ในเครื่องนี้เท่านั้น
         </p>
         <div className="row">
           <div className="field" style={{ flex: 1 }}>
             <input
               type="password"
-              placeholder="ไม่ต้องใส่ถ้าเซิร์ฟเวอร์ไม่ได้ตั้งรหัส"
+              placeholder="รหัสผ่านแอป"
+              aria-label="รหัสผ่านแอป"
+              autoComplete="off"
               value={passcode}
               onChange={(e) => setPasscode(e.target.value)}
             />
           </div>
-          <button className="btn btn-secondary" onClick={savePasscode}>
-            บันทึก
+          <button className="btn btn-secondary" onClick={savePasscode} disabled={busy}>
+            บันทึกและตรวจ
           </button>
         </div>
       </div>
@@ -301,7 +338,7 @@ export default function SettingsPage() {
           <input
             ref={fileRef}
             type="file"
-            accept="application/json"
+            accept=".json,application/json"
             hidden
             onChange={(e) => {
               const f = e.target.files?.[0];

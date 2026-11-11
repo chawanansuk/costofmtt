@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, deleteReceipt } from "@/lib/db";
 import { updateReceipt } from "@/lib/save";
-import { billSummary } from "@/lib/cost";
+import { billSummary, round2 } from "@/lib/cost";
 import {
   useCostBasis,
   itemUnitCost,
@@ -15,6 +15,7 @@ import {
 import type { ExtractedReceipt } from "@/lib/types";
 import { baht, thaiDate, DOC_TYPE_LABEL, CATEGORY_LABEL } from "@/lib/format";
 import ReceiptForm from "@/components/ReceiptForm";
+import ZoomableImage from "@/components/ZoomableImage";
 
 export default function ReceiptDetailPage({
   params,
@@ -26,9 +27,15 @@ export default function ReceiptDetailPage({
   const router = useRouter();
 
   // ค่าเริ่มต้น null = กำลังโหลด, undefined = ไม่พบเอกสาร
-  const receipt = useLiveQuery(() => db.receipts.get(receiptId), [receiptId], null);
+  // id ใน URL ไม่ใช่ตัวเลข (ลิงก์เสีย) → ถือว่าไม่พบ ไม่ส่งเข้า IndexedDB ซึ่งจะ throw
+  const validId = Number.isInteger(receiptId) && receiptId > 0;
+  const receipt = useLiveQuery(
+    () => (validId ? db.receipts.get(receiptId) : undefined),
+    [receiptId],
+    null
+  );
   const items = useLiveQuery(
-    () => db.items.where("receiptId").equals(receiptId).toArray(),
+    () => (validId ? db.items.where("receiptId").equals(receiptId).toArray() : []),
     [receiptId]
   );
 
@@ -45,6 +52,7 @@ export default function ReceiptDetailPage({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -63,12 +71,26 @@ export default function ReceiptDetailPage({
 
   async function handleUpdate(data: ExtractedReceipt) {
     setSaving(true);
+    setSaveErr(null);
     try {
       await updateReceipt(receiptId, data);
       setEditing(false);
       setSaveMsg("บันทึกการแก้ไขแล้ว");
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ กรุณาลองใหม่");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // จ่ายบิลแล้ว กดทีเดียวจบ ไม่ต้องเข้าโหมดแก้ไขทั้งใบ
+  async function setPaid(paid: boolean) {
+    setSaveErr(null);
+    try {
+      await db.receipts.update(receiptId, { paid });
+      setSaveMsg(paid ? "ทำเครื่องหมายว่าจ่ายแล้ว" : "เปลี่ยนกลับเป็นค้างจ่ายแล้ว");
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ กรุณาลองใหม่");
     }
   }
 
@@ -106,7 +128,7 @@ export default function ReceiptDetailPage({
           description: it.description,
           quantity: it.quantity,
           unit: it.unit,
-          unit_price: it.quantity > 0 ? it.amount / it.quantity : it.unitPrice,
+          unit_price: it.quantity > 0 ? round2(it.amount / it.quantity) : it.unitPrice,
           amount: it.amount,
           category: it.category ?? null,
         },
@@ -133,13 +155,14 @@ export default function ReceiptDetailPage({
       due_date: receipt.dueDate ?? null,
       notes: receipt.notes,
       confidence: receipt.confidence,
-      warnings: receipt.warnings,
+      warnings: receipt.warnings ?? [],
     };
     return (
       <div>
         <div className="page-header">
           <h1>แก้ไขเอกสาร</h1>
         </div>
+        {saveErr && <div className="alert alert-danger mt-2">{saveErr}</div>}
         <ReceiptForm
           initial={initial}
           saving={saving}
@@ -172,6 +195,7 @@ export default function ReceiptDetailPage({
       </div>
 
       {saveMsg && <div className="alert alert-ok mt-3">✓ {saveMsg}</div>}
+      {saveErr && <div className="alert alert-danger mt-3">{saveErr}</div>}
 
       <div className="row wrap mt-3" style={{ gap: "var(--space-2)" }}>
         {receipt.paid === false && (
@@ -209,6 +233,17 @@ export default function ReceiptDetailPage({
           </span>
         </div>
       </div>
+
+      {receipt.paid === false && (
+        <button className="btn btn-primary btn-block mt-3" onClick={() => setPaid(true)}>
+          ✓ จ่ายบิลนี้แล้ว
+        </button>
+      )}
+      {receipt.paid === true && (
+        <button className="btn btn-secondary btn-sm mt-3" onClick={() => setPaid(false)}>
+          เปลี่ยนกลับเป็นค้างจ่าย
+        </button>
+      )}
 
       <div className="grid-2 mt-4">
         <div>
@@ -352,7 +387,7 @@ export default function ReceiptDetailPage({
             </div>
           </div>
 
-          {receipt.warnings.length > 0 && (
+          {(receipt.warnings?.length ?? 0) > 0 && (
             <div className="alert alert-warn">
               <strong>ข้อสังเกตตอนสแกน:</strong>
               <ul>
@@ -366,7 +401,7 @@ export default function ReceiptDetailPage({
           {imageUrl && (
             <div className="card">
               <div className="card-title">รูปต้นฉบับ</div>
-              <img src={imageUrl} alt="ใบกำกับภาษีต้นฉบับ" className="preview-img" />
+              <ZoomableImage src={imageUrl} alt="ใบกำกับภาษีต้นฉบับ" />
             </div>
           )}
         </div>

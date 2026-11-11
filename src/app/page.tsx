@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import {
-  baht, thaiDate, monthKey, monthLabel, CATEGORY_LABEL, isCostDocument,
+  baht, thaiDate, monthKey, monthLabel, CATEGORY_LABEL, isCostDocument, todayISO,
 } from "@/lib/format";
 import { useCostBasis, itemAmount, COST_BASIS_LABEL } from "@/lib/costbasis";
 import BarChart from "@/components/BarChart";
@@ -100,7 +100,7 @@ export default function DashboardPage() {
   }, [receipts, items, basis]);
 
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const monthTitle = monthLabel(monthKey(null));
 
   if (stats && stats.totalCount === 0) {

@@ -10,6 +10,7 @@ import { recordUsage } from "@/lib/usage";
 import { postApi } from "@/lib/api";
 import { DOC_TYPE_LABEL, thaiDate } from "@/lib/format";
 import ReceiptForm from "@/components/ReceiptForm";
+import ZoomableImage from "@/components/ZoomableImage";
 
 type Phase = "idle" | "preparing" | "extracting" | "review" | "saving";
 
@@ -79,7 +80,7 @@ export default function ScanPage() {
       setExtracted(data);
       await recordUsage("extract", usage);
 
-      const dup = await findDuplicate(data.seller.tax_id, data.doc_number);
+      const dup = await findDuplicate(data.seller.tax_id, data.doc_number, data.seller.name);
       if (dup) {
         setDuplicate({
           message: `อาจเป็นใบซ้ำ: เลขที่ ${dup.docNumber} ของ ${dup.sellerName ?? "ผู้ขายรายนี้"} ถูกบันทึกไว้แล้ว`,
@@ -248,7 +249,9 @@ export default function ScanPage() {
             <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: "0.9rem" }}>
               🖼️ ดูรูปต้นฉบับเทียบ
             </summary>
-            <img src={current.dataUrl} alt="ใบกำกับภาษี" className="preview-img mt-3" />
+            <div className="mt-3">
+              <ZoomableImage src={current.dataUrl} alt="ใบกำกับภาษี" />
+            </div>
           </details>
           <ReceiptForm
             key={index}

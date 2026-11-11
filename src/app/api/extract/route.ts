@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { ExtractedReceipt, ExtractResponse, Party, LineItem } from "@/lib/types";
 import { validateExtraction, checkLineItems } from "@/lib/validate";
-import { guardRequest, anthropicErrorResponse } from "@/lib/apiguard";
+import { guardRequest, anthropicErrorResponse, startDeadline } from "@/lib/apiguard";
+import { cleanIsoDate, cleanTaxId, DOC_TYPE_LABEL } from "@/lib/format";
 
 // เติมโครงสร้างที่ขาดด้วยค่าปลอดภัย — กันแอปพังถ้าโมเดลไม่ส่งบางฟิลด์ (ไม่ strict แล้ว)
 const s = (v: unknown): string | null =>
@@ -24,7 +25,12 @@ const n = (v: unknown): number | null => {
 };
 const party = (v: unknown): Party => {
   const o = (v ?? {}) as Record<string, unknown>;
-  return { name: s(o.name), tax_id: s(o.tax_id), branch: s(o.branch), address: s(o.address) };
+  return {
+    name: s(o.name)?.trim() ?? null,
+    tax_id: cleanTaxId(s(o.tax_id)),
+    branch: s(o.branch),
+    address: s(o.address),
+  };
 };
 const CATEGORIES = new Set([
   "raw_material", "merchandise", "packaging", "supplies",
@@ -35,14 +41,26 @@ function normalizeExtracted(input: unknown): ExtractedReceipt {
   const o = (input ?? {}) as Record<string, unknown>;
   const items = Array.isArray(o.line_items) ? o.line_items : [];
   const conf = o.confidence;
+  const warnings = Array.isArray(o.warnings)
+    ? o.warnings.filter((w): w is string => typeof w === "string")
+    : [];
+  // วันที่ต้องเป็น YYYY-MM-DD ค.ศ. ที่มีอยู่จริง — โมเดลบางครั้งส่งปี พ.ศ. หรือรูปแบบอื่นมา
+  // ถ้าปล่อยผ่าน ยอดรายเดือนจะไปโผล่ในเดือนที่ไม่มีจริง (เช่น ปี 2569)
+  const date = (raw: unknown, label: string): string | null => {
+    const text = s(raw);
+    if (!text) return null;
+    const clean = cleanIsoDate(text);
+    if (!clean) warnings.push(`อ่าน${label}ได้เป็น "${text}" ซึ่งไม่ใช่วันที่ที่ถูกต้อง — กรุณากรอกเอง`);
+    return clean;
+  };
   return {
-    document_type: (typeof o.document_type === "string"
+    document_type: (typeof o.document_type === "string" && o.document_type in DOC_TYPE_LABEL
       ? o.document_type
       : "other") as ExtractedReceipt["document_type"],
     seller: party(o.seller),
     buyer: party(o.buyer),
-    doc_number: s(o.doc_number),
-    doc_date: s(o.doc_date),
+    doc_number: s(o.doc_number)?.trim() ?? null,
+    doc_date: date(o.doc_date, "วันที่เอกสาร"),
     line_items: items.map((it): LineItem => {
       const p = (it ?? {}) as Record<string, unknown>;
       return {
@@ -64,12 +82,10 @@ function normalizeExtracted(input: unknown): ExtractedReceipt {
     total: n(o.total),
     payment_method: s(o.payment_method),
     paid: typeof o.paid === "boolean" ? o.paid : null,
-    due_date: s(o.due_date),
+    due_date: date(o.due_date, "วันครบกำหนดชำระ"),
     notes: s(o.notes),
     confidence: conf === "high" || conf === "low" ? conf : "medium",
-    warnings: Array.isArray(o.warnings)
-      ? o.warnings.filter((w): w is string => typeof w === "string")
-      : [],
+    warnings,
   };
 }
 
@@ -219,6 +235,7 @@ export async function POST(req: NextRequest) {
   }
 
   const client = new Anthropic();
+  const deadline = startDeadline();
 
   const imageBlock: Anthropic.ImageBlockParam = {
     type: "image",
@@ -231,17 +248,21 @@ export async function POST(req: NextRequest) {
 
   // เรียกโมเดลหนึ่งรอบ คืนข้อมูลที่ normalize แล้ว + token ที่ใช้
   async function extractOnce(instruction: string) {
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 16000,
-      thinking: { type: "adaptive" },
-      system: SYSTEM_PROMPT,
-      tools: [EXTRACT_TOOL],
-      tool_choice: { type: "tool", name: "record_receipt" },
-      messages: [
-        { role: "user", content: [imageBlock, { type: "text", text: instruction }] },
-      ],
-    });
+    const response = await client.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 16000,
+        thinking: { type: "adaptive" },
+        system: SYSTEM_PROMPT,
+        tools: [EXTRACT_TOOL],
+        tool_choice: { type: "tool", name: "record_receipt" },
+        messages: [
+          { role: "user", content: [imageBlock, { type: "text", text: instruction }] },
+        ],
+      },
+      // ตัดตามเวลารวมของคำขอ (signal) — ไม่ให้ SDK ลองซ้ำเองจนเลยเวลาที่ Vercel ให้
+      { signal: deadline.signal, maxRetries: 1 }
+    );
     const toolUse = response.content.find(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
     );
@@ -269,7 +290,6 @@ export async function POST(req: NextRequest) {
     return out;
   }
 
-  const startedAt = Date.now();
   try {
     let pass = await extractOnce("อ่านข้อมูลจากภาพเอกสารการค้านี้ แล้วเรียก record_receipt" + hint);
     let inputTokens = pass.usage.input_tokens;
@@ -288,19 +308,27 @@ export async function POST(req: NextRequest) {
     let repaired = false;
     for (
       let i = 0;
-      i < MAX_REPAIR_PASSES && !truncated && Date.now() - startedAt < REPAIR_START_DEADLINE_MS;
+      i < MAX_REPAIR_PASSES && !truncated && deadline.elapsed() < REPAIR_START_DEADLINE_MS;
       i++
     ) {
       const problems = describeProblems(data);
       if (problems.length === 0) break;
-      const retry = await extractOnce(
-        "อ่านข้อมูลจากภาพเอกสารการค้านี้ แล้วเรียก record_receipt" + hint +
-          "\n\nการอ่านรอบแรกได้ผลดังนี้ (JSON):\n" + JSON.stringify(data) +
-          "\n\nแต่ตรวจพบความไม่สอดคล้อง:\n- " + problems.join("\n- ") +
-          "\n\nกรุณาดูภาพซ้ำอย่างละเอียด ตรวจว่าอ่านถูกคอลัมน์ ถูกบรรทัด และตัวเลขแต่ละหลักถูกต้อง " +
-          "โดยเฉพาะจุดที่ระบุข้างต้น แล้วเรียก record_receipt ใหม่ด้วยข้อมูลที่ถูกต้อง " +
-          "ถ้าตัวเลขในภาพเป็นแบบนั้นจริงและกระทบกันไม่ได้จริงๆ ให้คงค่าเดิมและอธิบายใน warnings"
-      );
+      let retry: Awaited<ReturnType<typeof extractOnce>>;
+      try {
+        retry = await extractOnce(
+          "อ่านข้อมูลจากภาพเอกสารการค้านี้ แล้วเรียก record_receipt" + hint +
+            "\n\nการอ่านรอบแรกได้ผลดังนี้ (JSON):\n" + JSON.stringify(data) +
+            "\n\nแต่ตรวจพบความไม่สอดคล้อง:\n- " + problems.join("\n- ") +
+            "\n\nกรุณาดูภาพซ้ำอย่างละเอียด ตรวจว่าอ่านถูกคอลัมน์ ถูกบรรทัด และตัวเลขแต่ละหลักถูกต้อง " +
+            "โดยเฉพาะจุดที่ระบุข้างต้น แล้วเรียก record_receipt ใหม่ด้วยข้อมูลที่ถูกต้อง " +
+            "ถ้าตัวเลขในภาพเป็นแบบนั้นจริงและกระทบกันไม่ได้จริงๆ ให้คงค่าเดิมและอธิบายใน warnings"
+        );
+      } catch (err) {
+        // รอบซ่อมล้ม (หมดเวลา/AI ขัดข้อง) — ผลรอบแรกยังใช้ได้ ห้ามทิ้ง ให้ผู้ใช้ตรวจเองแทน
+        console.error("repair pass failed:", err);
+        data.warnings.push("ยอดเงินยังไม่กระทบกัน และ AI อ่านซ้ำไม่สำเร็จ — กรุณาตรวจตัวเลขกับรูปต้นฉบับ");
+        break;
+      }
       inputTokens += retry.usage.input_tokens;
       outputTokens += retry.usage.output_tokens;
       if (!retry.data || retry.truncated) break;
@@ -331,5 +359,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   } catch (err) {
     return anthropicErrorResponse(err, Anthropic);
+  } finally {
+    deadline.stop();
   }
 }

@@ -11,6 +11,14 @@ const STATUS_MESSAGE: Record<number, string> = {
   504: "AI ใช้เวลาอ่านนานเกินกำหนด — กดลองใหม่อีกครั้ง ถ้ายังไม่ได้ให้ถ่ายใกล้ขึ้นหรือแบ่งบิลยาวเป็นสองรูป",
 };
 
+// status = 0 หมายถึงไปไม่ถึงเซิร์ฟเวอร์ (เน็ตหลุด)
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 export async function postApi<T>(path: string, body: unknown, fallbackError: string): Promise<T> {
   let passcode: string | null = null;
   try {
@@ -25,12 +33,13 @@ export async function postApi<T>(path: string, body: unknown, fallbackError: str
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(passcode ? { "x-app-passcode": passcode } : {}),
+        // percent-encode: header รับได้แค่ Latin-1 ถ้ารหัสมีอักษรไทย fetch จะ throw ทันที
+        ...(passcode ? { "x-app-passcode": encodeURIComponent(passcode) } : {}),
       },
       body: JSON.stringify(body),
     });
   } catch {
-    throw new Error("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่");
+    throw new ApiError("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่", 0);
   }
 
   let json: { error?: string } | null = null;
@@ -41,8 +50,9 @@ export async function postApi<T>(path: string, body: unknown, fallbackError: str
   }
 
   if (!res.ok || !json) {
-    throw new Error(
-      json?.error || STATUS_MESSAGE[res.status] || `${fallbackError} (รหัส ${res.status})`
+    throw new ApiError(
+      json?.error || STATUS_MESSAGE[res.status] || `${fallbackError} (รหัส ${res.status})`,
+      res.status
     );
   }
   return json as T;

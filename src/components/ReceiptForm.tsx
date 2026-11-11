@@ -4,17 +4,19 @@ import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
 import type { ExtractedReceipt, LineItem, CostCategory } from "@/lib/types";
-import { validateExtraction, normalizeItemName, checkLineItems } from "@/lib/validate";
+import { validateExtraction, checkLineItems } from "@/lib/validate";
 import {
   billDiscountFactor,
   summarizeExtracted,
   mergeFreebies,
   lineAmount,
-  vatUpliftFactor,
+  vatFactors,
+  baseItemName,
   round2,
 } from "@/lib/cost";
 import { useCostBasis, itemUnitCost, COST_BASIS_LABEL } from "@/lib/costbasis";
 import { baht, thaiDate, DOC_TYPE_LABEL, CATEGORY_LABEL, TEMP_DOC_TYPES } from "@/lib/format";
+import NumInput from "@/components/NumInput";
 
 interface Props {
   initial: ExtractedReceipt;
@@ -33,12 +35,6 @@ interface Props {
 
 // เตือนเมื่อราคา/หน่วยแพงกว่าการซื้อครั้งก่อนเกินเกณฑ์นี้
 const PRICE_ALERT_THRESHOLD = 0.1;
-
-const numOrNull = (s: string): number | null => {
-  if (s.trim() === "") return null;
-  const n = Number(s.replace(/,/g, ""));
-  return Number.isNaN(n) ? null : n;
-};
 
 export default function ReceiptForm({
   initial,
@@ -66,11 +62,11 @@ export default function ReceiptForm({
 
   const itemsSum = data.line_items.reduce((s, it) => s + (it.amount ?? 0), 0);
   const discountFactor = billDiscountFactor(data);
-  // ต้นทุนที่จ่ายจริง = ราคาป้าย × ส่วนลดท้ายบิล × VAT (ถ้าคิดต้นทุนแบบรวม VAT)
-  const vatFactor =
-    basis === "inc"
-      ? vatUpliftFactor(data, round2(itemsSum * discountFactor))
-      : 1;
+  // ต้นทุนต่อหน่วย = ราคาในรายการ × ส่วนลดท้ายบิล × ตัวคูณ VAT ตามฐานที่เลือก
+  // (รวม VAT: บวก VAT ถ้ารายการยังไม่รวม / ก่อน VAT: ถอด VAT ถ้ารายการรวมมาแล้ว)
+  const money = summarizeExtracted(data);
+  const vatBoth = vatFactors(money, round2(itemsSum * discountFactor));
+  const vatFactor = basis === "inc" ? vatBoth.inc : vatBoth.ex;
   const costFactor = discountFactor * vatFactor;
 
   // เทียบราคากับการซื้อครั้งล่าสุดของสินค้าเดียวกัน (ชื่อ+หน่วยเดียวกัน)
@@ -95,7 +91,7 @@ export default function ReceiptForm({
       const raw = qty > 0 ? lineAmount(it) / qty : it.unit_price;
       const now = raw == null ? null : raw * factor;
       if (now == null || now <= 0) continue;
-      const key = normalizeItemName(it.description);
+      const key = baseItemName(it.description);
       if (!key) continue;
       const prev = allItems
         .filter(
@@ -143,8 +139,6 @@ export default function ReceiptForm({
         { description: "", quantity: 1, unit: null, unit_price: null, amount: null, category: null },
       ],
     }));
-
-  const money = summarizeExtracted(data);
 
   // ของแถมที่ถูกยุบเข้ากับบรรทัดที่จ่ายเงิน — โชว์ให้เห็นว่าต้นทุนถูกหารใหม่แล้ว
   const { merged: freebieMap, standalone: standaloneIdx } = mergeFreebies(
@@ -448,8 +442,9 @@ export default function ReceiptForm({
             เทียบกับรูปต้นฉบับแล้วแก้ก่อนบันทึก ไม่งั้นต้นทุนต่อหน่วยจะผิด
           </div>
         )}
+        {/* จอเล็ก: แต่ละรายการเป็นการ์ด เห็นจำนวน/ราคา/ยอดรวมครบโดยไม่ต้องเลื่อนตารางไปทางขวา (ดู .items-edit ใน globals.css) */}
         <div className="table-wrap mt-3">
-          <table className="data">
+          <table className="data items-edit">
             <thead>
               <tr>
                 <th style={{ minWidth: 160 }}>รายการ</th>
@@ -472,10 +467,11 @@ export default function ReceiptForm({
                     : undefined;
                 return (
                 <tr key={i} style={rowBg ? { background: rowBg } : undefined}>
-                  <td>
+                  <td className="c-name">
                     <input
                       style={{ width: "100%", minWidth: 150 }}
                       className="cell-input"
+                      aria-label="ชื่อรายการ"
                       value={it.description}
                       onChange={(e) => setItem(i, { description: e.target.value })}
                     />
@@ -492,40 +488,47 @@ export default function ReceiptForm({
                       </div>
                     )}
                   </td>
-                  <td>
-                    <input
-                      style={{ width: 64, textAlign: "right" }}
-                      inputMode="decimal"
-                      value={it.quantity ?? ""}
-                      onChange={(e) => setItem(i, { quantity: numOrNull(e.target.value) })}
+                  <td data-label="จำนวน">
+                    <NumInput
+                      style={{ width: 76, textAlign: "right" }}
+                      className="cell-input"
+                      aria-label="จำนวน"
+                      value={it.quantity}
+                      onChange={(v) => setItem(i, { quantity: v })}
                     />
                   </td>
-                  <td>
+                  <td data-label="หน่วย">
                     <input
-                      style={{ width: 64 }}
+                      style={{ width: 76 }}
+                      className="cell-input"
+                      aria-label="หน่วย"
                       value={it.unit ?? ""}
                       onChange={(e) => setItem(i, { unit: e.target.value || null })}
                     />
                   </td>
-                  <td>
-                    <input
-                      style={{ width: 88, textAlign: "right" }}
-                      inputMode="decimal"
-                      value={it.unit_price ?? ""}
-                      onChange={(e) => setItem(i, { unit_price: numOrNull(e.target.value) })}
+                  <td data-label="ราคา/หน่วย">
+                    <NumInput
+                      style={{ width: 108, textAlign: "right" }}
+                      className="cell-input"
+                      aria-label="ราคาต่อหน่วย"
+                      value={it.unit_price}
+                      onChange={(v) => setItem(i, { unit_price: v })}
                     />
                   </td>
-                  <td>
-                    <input
-                      style={{ width: 96, textAlign: "right" }}
-                      inputMode="decimal"
-                      value={it.amount ?? ""}
-                      onChange={(e) => setItem(i, { amount: numOrNull(e.target.value) })}
+                  <td data-label="รวม">
+                    <NumInput
+                      style={{ width: 124, textAlign: "right" }}
+                      className="cell-input"
+                      aria-label="ยอดรวมของรายการ"
+                      value={it.amount}
+                      onChange={(v) => setItem(i, { amount: v })}
                     />
                   </td>
-                  <td>
+                  <td data-label="หมวดหมู่">
                     <select
                       style={{ minWidth: 120 }}
+                      className="cell-input"
+                      aria-label="หมวดหมู่"
                       value={it.category ?? ""}
                       onChange={(e) =>
                         setItem(i, {
@@ -541,10 +544,11 @@ export default function ReceiptForm({
                       ))}
                     </select>
                   </td>
-                  <td>
+                  <td className="c-del">
                     <button
                       className="btn btn-danger btn-sm"
                       title="ลบรายการ"
+                      aria-label="ลบรายการนี้"
                       onClick={() => removeItem(i)}
                     >
                       ✕
@@ -568,12 +572,18 @@ export default function ReceiptForm({
             ถ้าร้านขอคืนภาษีซื้อได้ ให้เปลี่ยนเป็น &quot;ก่อน VAT&quot; ที่หน้าตั้งค่า
           </div>
         )}
+        {vatFactor < 1 && (
+          <div className="alert alert-ok mt-2 small">
+            ✓ ราคาในใบนี้<strong>รวม VAT มาแล้ว</strong> — ต้นทุนแบบ &quot;ก่อน VAT&quot;
+            จะถอด VAT ออกให้ เพื่อให้เทียบกับใบอื่นได้ตรงกัน
+          </div>
+        )}
         {freebieNotes.length > 0 && (
           <div className="alert alert-ok mt-2 small">
             🎁 <strong>รวมของแถมเข้าต้นทุนให้แล้ว</strong>
             <ul style={{ marginLeft: 18, marginTop: 4 }}>
               {freebieNotes.map((f) => (
-                <li key={f.name}>
+                <li key={`${f.name}-${f.qty}-${f.free}`}>
                   {f.name} — ซื้อ {f.qty} + แถม {f.free} {f.unit ?? "หน่วย"} ={" "}
                   {f.qty + f.free} {f.unit ?? "หน่วย"} → <strong>{baht(f.cost)} บาท/{f.unit ?? "หน่วย"}</strong>{" "}
                   (จากราคาป้าย {baht(f.listCost)})
@@ -632,38 +642,34 @@ export default function ReceiptForm({
         <div className="form-grid">
           <div className="field">
             <label>ยอดก่อน VAT (บาท)</label>
-            <input
+            <NumInput
               className="num"
-              inputMode="decimal"
-              value={data.subtotal ?? ""}
-              onChange={(e) => set({ subtotal: numOrNull(e.target.value) })}
+              value={data.subtotal}
+              onChange={(v) => set({ subtotal: v })}
             />
           </div>
           <div className="field">
             <label>ส่วนลด (บาท)</label>
-            <input
+            <NumInput
               className="num"
-              inputMode="decimal"
-              value={data.discount ?? ""}
-              onChange={(e) => set({ discount: numOrNull(e.target.value) })}
+              value={data.discount}
+              onChange={(v) => set({ discount: v })}
             />
           </div>
           <div className="field">
             <label>VAT (บาท)</label>
-            <input
+            <NumInput
               className="num"
-              inputMode="decimal"
-              value={data.vat_amount ?? ""}
-              onChange={(e) => set({ vat_amount: numOrNull(e.target.value) })}
+              value={data.vat_amount}
+              onChange={(v) => set({ vat_amount: v })}
             />
           </div>
           <div className="field">
             <label>ยอดสุทธิ (บาท)</label>
-            <input
+            <NumInput
               className="num"
-              inputMode="decimal"
-              value={data.total ?? ""}
-              onChange={(e) => set({ total: numOrNull(e.target.value) })}
+              value={data.total}
+              onChange={(v) => set({ total: v })}
             />
           </div>
           <div className="field full">

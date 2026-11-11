@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
 import type { ReceiptRecord, ItemRecord, UsageRecord } from "./types";
-import { backfillIncVat } from "./cost";
+import { backfillIncVat, fixInclusiveExVat } from "./cost";
 
 // ข้อมูลทั้งหมดอยู่ใน IndexedDB บนเครื่องผู้ใช้ (offline-first)
 export const db = new Dexie("costsnap") as Dexie & {
@@ -63,19 +63,53 @@ db.version(5)
     }
   });
 
+// v6: บิลที่ราคาในรายการรวม VAT แล้ว เดิมเก็บช่อง "ก่อน VAT" เป็นยอดรวม VAT — ถอด VAT ออกย้อนหลัง
+db.version(6)
+  .stores({
+    receipts:
+      "++id, createdAt, docDate, sellerName, sellerTaxId, docNumber, documentType, dueDate",
+    items: "++id, receiptId, normalizedName, docDate, category",
+    usage: "++id, at, kind",
+  })
+  .upgrade(async (tx) => {
+    const receipts = (await tx.table("receipts").toArray()) as ReceiptRecord[];
+    for (const r of receipts) {
+      if (r.id == null || !(r.vatAmount > 0)) continue;
+      const list = (await tx
+        .table("items")
+        .where("receiptId")
+        .equals(r.id)
+        .toArray()) as ItemRecord[];
+      if (list.length === 0) continue;
+      const fixed = fixInclusiveExVat(r, list);
+      if (!fixed) continue;
+      for (let i = 0; i < list.length; i++) {
+        await tx.table("items").update(list[i].id!, fixed[i]);
+      }
+    }
+  });
+
+const sameText = (a: string | null, b: string | null) =>
+  (a ?? "").replace(/\s+/g, "").toLowerCase() === (b ?? "").replace(/\s+/g, "").toLowerCase();
+
 // ตรวจใบซ้ำ: ผู้ขายเดียวกัน + เลขที่เอกสารเดียวกัน
 export async function findDuplicate(
   sellerTaxId: string | null,
-  docNumber: string | null
+  docNumber: string | null,
+  sellerName: string | null = null
 ): Promise<ReceiptRecord | undefined> {
-  if (!docNumber) return undefined;
-  const candidates = await db.receipts
-    .where("docNumber")
-    .equals(docNumber)
-    .toArray();
-  return candidates.find(
-    (r) => !sellerTaxId || !r.sellerTaxId || r.sellerTaxId === sellerTaxId
-  );
+  const number = docNumber?.trim();
+  if (!number) return undefined;
+  const candidates = await db.receipts.where("docNumber").equals(number).toArray();
+  const taxId = sellerTaxId?.replace(/\D/g, "") || null;
+  return candidates.find((r) => {
+    // มีเลขผู้เสียภาษีทั้งสองใบ → ตัดสินด้วยเลขนั้น
+    const other = r.sellerTaxId?.replace(/\D/g, "") || null;
+    if (taxId && other) return taxId === other;
+    // ไม่มีเลขให้เทียบ (บิลเขียนมือ/บิลเงินสด เลขที่มักซ้ำกันข้ามร้าน เช่น "001") → เทียบชื่อผู้ขาย
+    if (sellerName && r.sellerName) return sameText(sellerName, r.sellerName);
+    return true;
+  });
 }
 
 // เตือนเอกสารเกี่ยวเนื่อง: ใบส่งของชั่วคราว/ใบเสนอขาย มักมีใบกำกับภาษีจริงตามมา

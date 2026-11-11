@@ -27,12 +27,13 @@
 npm install
 export ANTHROPIC_API_KEY=sk-ant-...   # คีย์จาก https://platform.claude.com
 npm run dev                            # เปิด http://localhost:3000
+npm test                               # ทดสอบสูตรคำนวณต้นทุน
 ```
 
 Deploy บน Vercel: ตั้ง Environment Variable `ANTHROPIC_API_KEY` แล้ว deploy ได้เลย
 
 ตัวเลือกเพิ่มเติม:
-- `EXTRACT_MODEL` — เปลี่ยนโมเดลที่ใช้ (ค่าเริ่มต้น `claude-opus-4-8`)
+- `EXTRACT_MODEL` — เปลี่ยนโมเดลที่ใช้ (ค่าเริ่มต้น `claude-opus-5`)
 - `APP_PASSCODE` — **แนะนำอย่างยิ่งถ้า deploy public**: ตั้งรหัสผ่านแอป
   แล้วให้ผู้ใช้ใส่รหัสเดียวกันในหน้า "ตั้งค่า" เพื่อกันคนอื่นแอบใช้ API ของเรา
   (API มี rate limit ต่อ IP อีกชั้นในตัว)

@@ -1,6 +1,7 @@
 // ตรรกะคำนวณต้นทุน (pure — ไม่แตะฐานข้อมูล จึงเทสต์ได้ตรงๆ)
 import type { ExtractedReceipt, ItemRecord, LineItem, ReceiptRecord } from "./types";
 import { validateExtraction, normalizeItemName } from "./validate";
+import { cleanIsoDate, cleanTaxId } from "./format";
 
 // ปัดทศนิยม 2 ตำแหน่งแบบครึ่งขึ้น — เผื่อความคลาดเคลื่อน floating point
 // (599.925 เก็บจริงเป็น 599.92499999… ถ้าไม่เผื่อจะปัดลงเป็น 599.92)
@@ -96,15 +97,15 @@ export function buildReceiptFields(
   const validation = validateExtraction(data);
   const s = summarizeExtracted(data);
   return {
-    docDate: data.doc_date,
-    docNumber: data.doc_number,
+    docDate: cleanIsoDate(data.doc_date),
+    docNumber: data.doc_number?.trim() || null,
     documentType: data.document_type,
     sellerName: data.seller.name,
-    sellerTaxId: data.seller.tax_id,
+    sellerTaxId: cleanTaxId(data.seller.tax_id),
     sellerBranch: data.seller.branch,
     sellerAddress: data.seller.address,
     buyerName: data.buyer.name,
-    buyerTaxId: data.buyer.tax_id,
+    buyerTaxId: cleanTaxId(data.buyer.tax_id),
     paymentMethod: data.payment_method,
     // subtotal ที่เก็บ = ฐานก่อน VAT หลังหักส่วนลดแล้ว (ยอดที่ใช้ยื่น ภ.พ.30)
     subtotal: s.netBeforeVat,
@@ -113,7 +114,7 @@ export function buildReceiptFields(
     total: s.total,
     vatClaimable: validation.vatClaimable,
     paid: data.paid,
-    dueDate: data.due_date,
+    dueDate: cleanIsoDate(data.due_date),
     confidence: data.confidence,
     warnings: data.warnings,
     notes: data.notes,
@@ -226,16 +227,24 @@ function spreadDiscount(raw: number[], factor: number): number[] {
   return out.map((v) => v / 100);
 }
 
-// ราคาที่พิมพ์ในรายการรวม VAT แล้วหรือยัง?
-// ถ้ายัง (ผลรวมรายการหลังหักส่วนลด ≈ ฐานก่อน VAT) ต้องคูณกลับเป็นเงินที่จ่ายจริง
-// ถ้ารวมแล้ว (≈ ยอดสุทธิ) คูณเพิ่มอีกจะกลายเป็นบวก VAT ซ้ำ
-export function vatUpliftFactor(data: ExtractedReceipt, netItemsSum: number): number {
-  const s = summarizeExtracted(data);
-  if (s.vat <= 0 || s.netBeforeVat <= 0 || netItemsSum <= 0) return 1;
+// ราคาที่พิมพ์ในรายการรวม VAT แล้วหรือยัง? คืนตัวคูณแปลงยอดรายการ (หลังหักส่วนลด) เป็นแต่ละฐาน
+//   ยังไม่รวม (ผลรวมรายการ ≈ ฐานก่อน VAT) → ex = 1, inc = คูณ VAT กลับเป็นเงินที่จ่ายจริง
+//   รวมแล้ว   (ผลรวมรายการ ≈ ยอดสุทธิ)   → inc = 1, ex = ถอด VAT ออก
+//     (ถ้าไม่ถอด ต้นทุน "ก่อน VAT" ของบิลแบบนี้จะสูงกว่าบิลอื่น 7% เทียบราคากันไม่ได้)
+//   ยอดไม่ตรงทั้งสองแบบ → ไม่เดา ใช้ยอดตามที่พิมพ์ทั้งสองฐาน
+export function vatFactors(
+  money: { total: number; vat: number; netBeforeVat: number },
+  netItemsSum: number
+): { ex: number; inc: number } {
+  if (money.vat <= 0 || money.netBeforeVat <= 0 || netItemsSum <= 0) return { ex: 1, inc: 1 };
   const tol = Math.max(1, netItemsSum * 0.005);
-  if (Math.abs(netItemsSum - s.total) <= tol) return 1; // รวม VAT อยู่แล้ว
-  if (Math.abs(netItemsSum - s.netBeforeVat) > tol) return 1; // ยอดไม่ตรงทั้งสองแบบ ไม่เดา
-  return s.total / s.netBeforeVat;
+  if (Math.abs(netItemsSum - money.total) <= tol) {
+    return { ex: money.netBeforeVat / money.total, inc: 1 };
+  }
+  if (Math.abs(netItemsSum - money.netBeforeVat) <= tol) {
+    return { ex: 1, inc: money.total / money.netBeforeVat };
+  }
+  return { ex: 1, inc: 1 };
 }
 
 // กระจายยอดตามสัดส่วนให้ผลรวมลงตัวพอดี (ใช้เศษมากได้ก่อนเหมือนกัน)
@@ -274,12 +283,11 @@ export function buildItemRecords(
   );
   const net = spreadDiscount(raw, factor);
 
-  // ต้นทุนที่ "จ่ายจริง" ต้องรวม VAT ด้วย — เก็บคู่กันไว้ทั้งสองแบบ
-  // (แบบก่อน VAT ใช้กระทบยอด/ยื่น ภ.พ.30 แบบรวม VAT ใช้เป็นต้นทุนสินค้า)
+  // เก็บต้นทุนคู่กันทั้งสองฐาน: ก่อน VAT (กระทบยอด/ยื่น ภ.พ.30) และรวม VAT (เงินที่จ่ายจริง)
   const netSum = round2(net.reduce((a, b) => a + b, 0));
-  const uplift = vatUpliftFactor(data, netSum);
-  const incVat =
-    uplift > 1 ? spreadTo(net, round2(netSum * uplift)) : net.map(round2);
+  const f = vatFactors(summarizeExtracted(data), netSum);
+  const exVat = f.ex < 1 ? spreadTo(net, round2(netSum * f.ex)) : net.map(round2);
+  const incVat = f.inc > 1 ? spreadTo(net, round2(netSum * f.inc)) : net.map(round2);
 
   return keep.map(({ it, i: orig }, i) => {
     const qty = it.quantity ?? 1;
@@ -288,7 +296,7 @@ export function buildItemRecords(
     const totalQty = qty + freeQuantity;
     return {
       receiptId,
-      docDate: data.doc_date,
+      docDate: cleanIsoDate(data.doc_date),
       sellerName: data.seller.name,
       description: it.description,
       normalizedName: baseItemName(it.description),
@@ -296,8 +304,8 @@ export function buildItemRecords(
       ...(freeQuantity > 0 ? { freeQuantity } : {}),
       ...(standalone.includes(orig) ? { isFreebie: true } : {}),
       unit: it.unit,
-      unitPrice: totalQty > 0 ? round2(net[i] / totalQty) : net[i],
-      amount: net[i],
+      unitPrice: totalQty > 0 ? round2(exVat[i] / totalQty) : exVat[i],
+      amount: exVat[i],
       unitPriceIncVat: totalQty > 0 ? round2(incVat[i] / totalQty) : incVat[i],
       amountIncVat: incVat[i],
       category: it.category,
@@ -330,6 +338,30 @@ export function backfillIncVat(
     return {
       amountIncVat: incVat[i],
       unitPriceIncVat: qty > 0 ? round2(incVat[i] / qty) : incVat[i],
+    };
+  });
+}
+
+// เอกสารที่บันทึกก่อนแก้เรื่องบิลราคารวม VAT: ช่อง "ก่อน VAT" ของรายการยังเป็นยอดรวม VAT อยู่
+// ถอด VAT ออกให้ (ทำซ้ำได้ปลอดภัย — แก้แล้วผลรวมจะ ≈ ฐานก่อน VAT จึงไม่เข้าเงื่อนไขอีก)
+// คืน null ถ้าใบนี้ไม่ต้องแก้
+export function fixInclusiveExVat(
+  receipt: { total: number; vatAmount: number },
+  items: { amount: number; quantity: number; freeQuantity?: number; amountIncVat?: number; unitPriceIncVat?: number; unitPrice: number }[]
+): { amount: number; unitPrice: number; amountIncVat: number; unitPriceIncVat: number }[] | null {
+  const netSum = round2(items.reduce((s, it) => s + it.amount, 0));
+  const netBeforeVat = round2(receipt.total - receipt.vatAmount);
+  const f = vatFactors({ total: receipt.total, vat: receipt.vatAmount, netBeforeVat }, netSum);
+  if (f.ex >= 1) return null;
+  const ex = spreadTo(items.map((it) => it.amount), round2(netSum * f.ex));
+  return items.map((it, i) => {
+    const qty = it.quantity + (it.freeQuantity ?? 0);
+    return {
+      amount: ex[i],
+      unitPrice: qty > 0 ? round2(ex[i] / qty) : ex[i],
+      // ยอดเดิมคือยอดรวม VAT อยู่แล้ว
+      amountIncVat: it.amountIncVat ?? round2(it.amount),
+      unitPriceIncVat: it.unitPriceIncVat ?? it.unitPrice,
     };
   });
 }

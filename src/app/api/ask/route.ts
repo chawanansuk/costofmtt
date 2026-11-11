@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { guardRequest, anthropicErrorResponse } from "@/lib/apiguard";
+import { guardRequest, anthropicErrorResponse, startDeadline } from "@/lib/apiguard";
 
-export const maxDuration = 60;
+// ข้อมูลร้านก้อนใหญ่ + โมเดลคิดก่อนตอบ ใช้เวลาเกิน 60 วินาทีได้
+export const maxDuration = 300;
 
 const MODEL = process.env.EXTRACT_MODEL || "claude-opus-5";
 const MAX_QUESTION = 500;
@@ -47,20 +48,27 @@ export async function POST(req: NextRequest) {
   }
 
   const client = new Anthropic();
+  const deadline = startDeadline();
   try {
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 2000,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `ข้อมูลร้าน (JSON):\n${summary}\n\nคำถามของเจ้าของร้าน: ${question}`,
-        },
-      ],
-    });
+    const response = await client.messages.create(
+      {
+        model: MODEL,
+        // โมเดลคิดก่อนตอบ และโทเคนที่ใช้คิดนับรวมใน max_tokens — 2000 เดิมทำให้คำตอบถูกตัดกลางคันหรือว่างเปล่า
+        max_tokens: 12000,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "medium" },
+        system: SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: `ข้อมูลร้าน (JSON):\n${summary}\n\nคำถามของเจ้าของร้าน: ${question}`,
+          },
+        ],
+      },
+      { signal: deadline.signal, maxRetries: 1 }
+    );
 
-    const answer = response.content
+    let answer = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("\n")
@@ -72,6 +80,9 @@ export async function POST(req: NextRequest) {
         { status: 502 }
       );
     }
+    if (response.stop_reason === "max_tokens") {
+      answer += "\n\n(คำตอบยาวเกินกำหนดจึงถูกตัด — ลองถามให้เจาะจงขึ้น)";
+    }
 
     return NextResponse.json({
       answer,
@@ -82,5 +93,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     return anthropicErrorResponse(err, Anthropic);
+  } finally {
+    deadline.stop();
   }
 }
